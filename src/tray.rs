@@ -70,10 +70,7 @@ impl TrayIconManager {
         let default_name: Vec<u16> = "Default\0".encode_utf16().collect();
         let hdesk = OpenDesktopW(default_name.as_ptr(), 0, 0, 0x1FF);
         if hdesk != 0 as _ {
-            let res = SetThreadDesktop(hdesk);
-            println!("[Tray] OpenDesktopW: {:?}, SetThreadDesktop: {}", hdesk, res);
-        } else {
-            println!("[Tray] OpenDesktopW failed: {}", windows_sys::Win32::Foundation::GetLastError());
+            let _ = SetThreadDesktop(hdesk);
         }
 
         let class_name: Vec<u16> = "AuraZone_TrayClass\0".encode_utf16().collect();
@@ -92,7 +89,7 @@ impl TrayIconManager {
             lpszClassName: class_name.as_ptr(),
         };
 
-        let atom = RegisterClassW(&wnd_class);
+        let _atom = RegisterClassW(&wnd_class);
 
         let hwnd = CreateWindowExW(
             0,
@@ -108,8 +105,6 @@ impl TrayIconManager {
             h_instance,
             std::ptr::null(),
         );
-
-        println!("[Tray] RegisterClass atom: {}, hwnd: {:?}, LastError: {}", atom, hwnd, windows_sys::Win32::Foundation::GetLastError());
 
         if hwnd == 0 as _ {
             return;

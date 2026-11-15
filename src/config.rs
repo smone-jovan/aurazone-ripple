@@ -309,3 +309,43 @@ impl RippleConfig {
         }
     }
 }
+
+/// Returns the canonical path to the settings file (`%APPDATA%\AuraZoneRipple\ripple_settings.json`).
+///
+/// 1. Honors `AURAZONE_SETTINGS_PATH` env var if set (for tests/custom overrides).
+/// 2. Uses `%APPDATA%\AuraZoneRipple\ripple_settings.json` on Windows.
+///    Automatically migrates any existing settings from known locations so custom profiles are preserved.
+/// 3. Fallback: next to the current executable or relative "ripple_settings.json".
+pub fn get_canonical_settings_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("AURAZONE_SETTINGS_PATH") {
+        return std::path::PathBuf::from(p);
+    }
+
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let dir = std::path::PathBuf::from(appdata).join("AuraZoneRipple");
+        let _ = std::fs::create_dir_all(&dir);
+        let canonical_file = dir.join("ripple_settings.json");
+
+        if !canonical_file.exists() {
+            let candidates = [
+                std::path::PathBuf::from(r"C:\Users\ROG\ripple_settings.json"),
+                std::path::PathBuf::from(r"C:\Users\ROG\AuraZoneRipple_Rust\ripple_settings.json"),
+            ];
+            for cand in &candidates {
+                if cand.is_file() {
+                    let _ = std::fs::copy(cand, &canonical_file);
+                    break;
+                }
+            }
+        }
+        return canonical_file;
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            return parent.join("ripple_settings.json");
+        }
+    }
+
+    std::path::PathBuf::from("ripple_settings.json")
+}

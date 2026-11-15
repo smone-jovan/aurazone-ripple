@@ -45,10 +45,7 @@ pub struct AuraGuiApp {
 impl AuraGuiApp {
     /// Creates a new AuraGuiApp instance.
     pub fn new() -> Self {
-        let settings_path = std::env::var("AURAZONE_SETTINGS_PATH")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("ripple_settings.json"));
-
+        let settings_path = crate::config::get_canonical_settings_path();
         let (config, _) = RippleConfig::load_or_recover(&settings_path);
 
         let wave_speed_ms = if config.speed > 0.05 {

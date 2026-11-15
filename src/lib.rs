@@ -11,7 +11,7 @@ pub mod patcher;
 pub mod physics;
 pub mod tray;
 
-pub use config::{ConfigError, Preset, ProfileData, RippleConfig};
+pub use config::{get_canonical_settings_path, ConfigError, Preset, ProfileData, RippleConfig};
 pub use daemon::run_daemon;
 pub use patcher::{
     find_ghelper_exe_path, patch_debounce_timer_buffer, patch_ghelper_buffer, patch_ghelper_file,

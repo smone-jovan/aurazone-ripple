@@ -1,6 +1,60 @@
-//! Minimal CLI entry point router for AuraZoneRipple_Rust.
+#![windows_subsystem = "windows"]
+//! Minimal CLI and GUI entry point router for AuraZoneRipple_Rust.
 
 use clap::Parser;
+use std::io::Write;
+
+#[cfg(windows)]
+fn attach_parent_console() {
+    use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_parent_console() {}
+
+fn cli_print(msg: &str) {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Console::{GetStdHandle, WriteConsoleW, STD_OUTPUT_HANDLE};
+        use windows_sys::Win32::Storage::FileSystem::WriteFile;
+        let h = GetStdHandle(STD_OUTPUT_HANDLE);
+        let invalid = windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        if !h.is_null() && h != invalid {
+            let wide: Vec<u16> = msg.encode_utf16().collect();
+            let mut written = 0;
+            if WriteConsoleW(
+                h,
+                wide.as_ptr() as _,
+                wide.len() as u32,
+                &mut written,
+                std::ptr::null_mut(),
+            ) != 0
+            {
+                return;
+            }
+            let bytes = msg.as_bytes();
+            let mut bytes_written = 0;
+            if WriteFile(
+                h,
+                bytes.as_ptr() as _,
+                bytes.len() as u32,
+                &mut bytes_written,
+                std::ptr::null_mut(),
+            ) != 0
+            {
+                return;
+            }
+        }
+    }
+    print!("{}", msg);
+}
+
+fn cli_println(msg: &str) {
+    cli_print(&format!("{}\r\n", msg));
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -82,102 +136,121 @@ fn spawn_daemon_background(mock: bool) {
 }
 
 fn main() {
+    std::panic::set_hook(Box::new(|info| {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let p = std::path::PathBuf::from(appdata).join("AuraZoneRipple").join("panic.log");
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+                let _ = writeln!(f, "PANIC: {:?}", info);
+            }
+        }
+    }));
+
     let args = CliArgs::parse();
+
+    if args.status
+        || args.toggle
+        || args.stop
+        || args.restore
+        || args.patch_ghelper
+        || args.unpatch_ghelper
+        || args.install_ghelper
+        || args.profile.is_some()
+    {
+        attach_parent_console();
+    }
 
     if args.daemon {
         if let Err(e) = aura_zone_ripple::daemon::run_daemon(args.mock) {
-            eprintln!("Daemon execution failed: {}", e);
+            cli_println(&format!("Daemon execution failed: {}", e));
             std::process::exit(1);
         }
     } else if args.status {
         match aura_zone_ripple::ipc::send_ipc_command("STATUS") {
             Ok(resp) => {
-                print!("{}", resp);
+                cli_print(&resp);
             }
             Err(_) => {
-                println!("AuraZoneRipple is idle/stopped.");
+                cli_println("AuraZoneRipple is idle/stopped.");
                 std::process::exit(1);
             }
         }
     } else if args.toggle {
         match aura_zone_ripple::ipc::send_ipc_command("TOGGLE") {
             Ok(resp) => {
-                print!("{}", resp);
+                cli_print(&resp);
             }
             Err(_) => {
-                println!("AuraZoneRipple daemon not running. Spawning daemon in background...");
+                cli_println("AuraZoneRipple daemon not running. Spawning daemon in background...");
                 spawn_daemon_background(args.mock);
                 match aura_zone_ripple::ipc::send_ipc_command("STATUS") {
-                    Ok(resp) => print!("Daemon started: {}", resp),
-                    Err(e) => eprintln!("Daemon started, but pipe query failed: {}", e),
+                    Ok(resp) => cli_print(&format!("Daemon started: {}", resp)),
+                    Err(e) => cli_println(&format!("Daemon started, but pipe query failed: {}", e)),
                 }
             }
         }
     } else if args.stop {
         match aura_zone_ripple::ipc::send_ipc_command("STOP") {
             Ok(resp) => {
-                print!("{}", resp);
+                cli_print(&resp);
             }
             Err(e) => {
-                eprintln!("Error connecting to daemon: {}", e);
+                cli_println(&format!("Error connecting to daemon: {}", e));
                 std::process::exit(1);
             }
         }
     } else if args.restore {
         match aura_zone_ripple::ghelper::restore_static_lighting(args.mock) {
             Ok(rgb) => {
-                println!(
+                cli_println(&format!(
                     "Restored static lighting to RGB({}, {}, {}).",
                     rgb[0], rgb[1], rgb[2]
-                );
+                ));
             }
             Err(e) => {
-                eprintln!("Error restoring static lighting: {}", e);
+                cli_println(&format!("Error restoring static lighting: {}", e));
                 std::process::exit(1);
             }
         }
     } else if let Some(slot) = args.profile {
         if slot != 1 && slot != 2 {
-            eprintln!("Error: Profile slot must be 1 or 2.");
+            cli_println("Error: Profile slot must be 1 or 2.");
             std::process::exit(1);
         }
-        let settings_path = std::env::var("AURAZONE_SETTINGS_PATH")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::path::PathBuf::from("ripple_settings.json"));
+        let settings_path = aura_zone_ripple::config::get_canonical_settings_path();
 
         let (mut config, _) = aura_zone_ripple::config::RippleConfig::load_or_recover(&settings_path);
         config.apply_profile(slot);
         if let Err(e) = config.save_to_path(&settings_path) {
-            eprintln!("Error saving config: {}", e);
+            cli_println(&format!("Error saving config: {}", e));
             std::process::exit(1);
         }
-        println!("Switched to Profil {}.", slot);
+        cli_println(&format!("Switched to Profil {}.", slot));
         let _ = aura_zone_ripple::ipc::send_ipc_command("RELOAD");
     } else if args.patch_ghelper {
         let exe_path = args.ghelper_path.or_else(aura_zone_ripple::find_ghelper_exe_path);
         match exe_path {
             Some(path) => {
-                println!("Menemukan GHelper.exe di: {}", path.display());
+                cli_println(&format!("Menemukan GHelper.exe di: {}", path.display()));
                 match aura_zone_ripple::patch_ghelper_file(&path) {
                     Ok(_) => {
-                        println!("========================================================");
-                        println!(" [OK] G-Helper BERHASIL DI-PATCH SECARA AMAN!");
-                        println!(" [OK] Mode 'Ripple' resmi kini aktif di dropdown G-Helper!");
-                        println!(" [OK] Backup otomatis tersimpan di: {}.bak", path.display());
-                        println!(" [OK] Icon Tray AuraZone aktif berdampingan dengan G-Helper.");
-                        println!("========================================================");
-                        println!("Tips: Pengaturan warna, speed, & profil custom dapat");
-                        println!("      diakses kapan saja lewat Icon Tray di taskbar!");
+                        cli_println("========================================================");
+                        cli_println(" [OK] G-Helper BERHASIL DI-PATCH SECARA AMAN!");
+                        cli_println(" [OK] Mode 'Ripple' resmi kini aktif di dropdown G-Helper!");
+                        cli_println(&format!(" [OK] Backup otomatis tersimpan di: {}.bak", path.display()));
+                        cli_println(" [OK] Icon Tray AuraZone aktif berdampingan dengan G-Helper.");
+                        cli_println("========================================================");
+                        cli_println("Tips: Pengaturan warna, speed, & profil custom dapat");
+                        cli_println("      diakses kapan saja lewat Icon Tray di taskbar!");
                     }
                     Err(e) => {
-                        eprintln!("Gagal mem-patch G-Helper: {}", e);
+                        cli_println(&format!("Gagal mem-patch G-Helper: {}", e));
                         std::process::exit(1);
                     }
                 }
             }
             None => {
-                eprintln!("Error: GHelper.exe tidak ditemukan secara otomatis.");
-                eprintln!("Gunakan: aurazone_ripple.exe --patch-ghelper --ghelper-path \"C:\\Path\\To\\GHelper.exe\"");
+                cli_println("Error: GHelper.exe tidak ditemukan secara otomatis.");
+                cli_println("Gunakan: aurazone_ripple.exe --patch-ghelper --ghelper-path \"C:\\Path\\To\\GHelper.exe\"");
                 std::process::exit(1);
             }
         }
@@ -187,26 +260,26 @@ fn main() {
             Some(path) => {
                 match aura_zone_ripple::unpatch_ghelper_file(&path) {
                     Ok(_) => {
-                        println!("[OK] G-Helper berhasil dikembalikan ke versi original.");
+                        cli_println("[OK] G-Helper berhasil dikembalikan ke versi original.");
                     }
                     Err(e) => {
-                        eprintln!("Gagal unpatch G-Helper: {}", e);
+                        cli_println(&format!("Gagal unpatch G-Helper: {}", e));
                         std::process::exit(1);
                     }
                 }
             }
             None => {
-                eprintln!("Error: GHelper.exe tidak ditemukan.");
+                cli_println("Error: GHelper.exe tidak ditemukan.");
                 std::process::exit(1);
             }
         }
     } else if args.install_ghelper {
         match aura_zone_ripple::ghelper::install_ghelper_binding() {
             Ok(action) => {
-                println!("Successfully installed G-Helper M5 action: {}", action);
+                cli_println(&format!("Successfully installed G-Helper M5 action: {}", action));
             }
             Err(e) => {
-                eprintln!("Error installing G-Helper binding: {}", e);
+                cli_println(&format!("Error installing G-Helper binding: {}", e));
                 std::process::exit(1);
             }
         }
@@ -236,13 +309,28 @@ fn main() {
             std::process::exit(1);
         }
     } else {
-        println!("=================================================================");
-        println!(" ASUS ROG Strix 4-Zone Reactive Ripple Engine (Rust Native)");
-        println!(" Hardware: ROG Strix G513RC (ASUS N-Key VID_0B05 PID_19B6)");
-        println!("=================================================================");
-        println!("Memulai live engine... (Tekan Ctrl + C untuk keluar)");
-        if let Err(e) = aura_zone_ripple::daemon::run_daemon(args.mock) {
-            eprintln!("Execution failed: {}", e);
+        // Double-clicked or launched without arguments in Windows: open the GUI!
+        if aura_zone_ripple::ipc::send_ipc_command("STATUS").is_err() {
+            spawn_daemon_background(args.mock);
+        }
+        #[cfg(windows)]
+        unsafe {
+            use windows_sys::Win32::System::StationsAndDesktops::{OpenDesktopW, SetThreadDesktop};
+            use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
+            let default_name: Vec<u16> = "Default\0".encode_utf16().collect();
+            let hdesk = OpenDesktopW(default_name.as_ptr(), 0, 0, 0x1FF);
+            if hdesk != 0 as _ {
+                SetThreadDesktop(hdesk);
+            }
+            let title: Vec<u16> = "AuraZoneRipple — Aura Control Center\0".encode_utf16().collect();
+            let existing_hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
+            if existing_hwnd != 0 as _ {
+                SetForegroundWindow(existing_hwnd);
+                return;
+            }
+        }
+        if let Err(e) = aura_zone_ripple::gui::run_gui() {
+            eprintln!("Failed to launch GUI: {}", e);
             std::process::exit(1);
         }
     }

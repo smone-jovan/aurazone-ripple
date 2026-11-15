@@ -21,26 +21,26 @@ use crate::physics::{
     advance_rainbow, RippleEngine, DEFAULT_SPREAD_MS, DEFAULT_WAVE_DURATION_MS,
     FRAME_INTERVAL_MS, LIGHTBAR_CASCADE_DELAY_MS,
 };
+use std::io::Write;
 
-static GLOBAL_RUNNING: AtomicBool = AtomicBool::new(true);
-
-#[cfg(windows)]
-extern "system" {
-    fn SetConsoleCtrlHandler(
-        handler_routine: Option<unsafe extern "system" fn(u32) -> i32>,
-        add: i32,
-    ) -> i32;
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        let _ = writeln!(std::io::stdout(), $($arg)*);
+    };
 }
 
-#[cfg(windows)]
-unsafe extern "system" fn console_ctrl_handler(ctrl_type: u32) -> i32 {
-    if ctrl_type == 0 || ctrl_type == 1 {
-        // Explicit Ctrl+C or Ctrl+Break
-        GLOBAL_RUNNING.store(false, Ordering::SeqCst);
-        1
-    } else {
-        // Ignore terminal close / detach so daemon persists in system tray
-        1
+macro_rules! log_err {
+    ($($arg:tt)*) => {
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    };
+}
+
+fn file_log(msg: &str) {
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let p = std::path::PathBuf::from(appdata).join("AuraZoneRipple").join("daemon.log");
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            let _ = writeln!(f, "[{:?}] {}", std::time::SystemTime::now(), msg);
+        }
     }
 }
 
@@ -93,25 +93,24 @@ impl IpcCommandHandler for DaemonCommandHandler {
 
 /// Runs the AuraZoneRipple background daemon.
 pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
+    file_log("1. Starting run_daemon...");
     // 1. Acquire single-instance mutex
     let mutex = match SingleInstanceMutex::acquire() {
-        Ok(m) => m,
+        Ok(m) => {
+            file_log("2. Mutex acquired.");
+            m
+        }
         Err(e) => {
-            eprintln!("Error acquiring single-instance mutex: {}", e);
+            file_log(&format!("ERROR acquiring mutex: {}", e));
+            log_err!("Error acquiring single-instance mutex: {}", e);
             std::process::exit(1);
         }
     };
 
-    #[cfg(windows)]
-    unsafe {
-        SetConsoleCtrlHandler(Some(console_ctrl_handler), 1);
-    }
-
     // 2. Resolve settings path & load initial configuration
-    let settings_path = std::env::var("AURAZONE_SETTINGS_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("ripple_settings.json"));
+    let settings_path = crate::config::get_canonical_settings_path();
     let (initial_config, _) = RippleConfig::load_or_recover(&settings_path);
+    file_log(&format!("3. Settings loaded from {:?}, preset={:?}", settings_path, initial_config.preset));
     let shared_config = Arc::new(RwLock::new(initial_config));
 
     // 3. Initialize Aura HID Device (physical or mock)
@@ -120,11 +119,11 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         match Win32AuraDevice::open() {
             Ok(dev) => {
-                println!("[OK] Kontroler Aura Direct siap pada hardware (Col05).");
+                log_info!("[OK] Kontroler Aura Direct siap pada hardware (Col05).");
                 Box::new(dev)
             }
             Err(e) => {
-                eprintln!(
+                log_err!(
                     "Warning: Failed to open physical Aura device ({:?}), falling back to mock device.",
                     e
                 );
@@ -140,7 +139,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         match KeyboardListener::start() {
             Ok(lis) => lis,
             Err(e) => {
-                eprintln!(
+                log_err!(
                     "Warning: Failed to start keyboard hook ({:?}), falling back to mock listener.",
                     e
                 );
@@ -149,6 +148,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     let rx = listener.receiver();
+    file_log("4. Device and listener ready.");
 
     // 5. Shared daemon state
     let ghelper_cfg_path = crate::ghelper::get_ghelper_config_path();
@@ -183,10 +183,12 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let mut server = NamedPipeServer::start(pipe_name.clone(), handler, Arc::clone(&running))?;
+    file_log("5. NamedPipeServer running.");
 
     // 6a. Spawn Windows System Tray Icon thread
     let _tray_thread = crate::tray::TrayIconManager::new(Arc::clone(&running), Arc::clone(&active))
         .spawn_thread();
+    file_log("6. Tray thread spawned.");
 
     // 6b. Spawn G-Helper Config Watcher thread (Auto-Nyala saat Ripple (8), Auto-Pause saat mode lain)
     let ghelper_active = Arc::clone(&active);
@@ -211,12 +213,12 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
                                         // G-Helper switched to Ripple mode!
                                         ghelper_active.store(true, Ordering::SeqCst);
                                         need_reprime_watcher.store(true, Ordering::SeqCst);
-                                        println!("[G-Helper] Mode Ripple (8) aktif -> AuraZone Auto-Nyala & Reprime.");
+                                        log_info!("[G-Helper] Mode Ripple (8) aktif -> AuraZone Auto-Nyala & Reprime.");
                                     } else {
                                         // G-Helper switched to another mode (Static, Breathe, Color Cycle, etc.)
                                         if ghelper_active.load(Ordering::SeqCst) {
                                             ghelper_active.store(false, Ordering::SeqCst);
-                                            println!("[G-Helper] Mode {} aktif -> AuraZone Auto-Pause.", mode);
+                                            log_info!("[G-Helper] Mode {} aktif -> AuraZone Auto-Pause.", mode);
                                         }
                                     }
                                 }
@@ -235,7 +237,8 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     let mut was_active = false;
     let mut reprime_countdown: u32 = 0;
 
-    while running.load(Ordering::Relaxed) && GLOBAL_RUNNING.load(Ordering::Relaxed) {
+    file_log("7. Entering while loop.");
+    while running.load(Ordering::Relaxed) {
         let frame_start = Instant::now();
         let is_active = active.load(Ordering::Relaxed);
         let cfg = shared_config.read().clone();
@@ -274,7 +277,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         while let Ok(event) = rx.try_recv() {
             let zone_names = ["Zona 0 (Kiri/WASD)", "Zona 1 (Tengah-Kiri)", "Zona 2 (Tengah-Kanan)", "Zona 3 (Kanan/Numpad)"];
             let z_name = zone_names.get(event.zone).unwrap_or(&"Unknown");
-            println!(" -> [KETIK] Terdeteksi di {}! Gelombang merambat...", z_name);
+            log_info!(" -> [KETIK] Terdeteksi di {}! Gelombang merambat...", z_name);
             let color = if cfg.rainbow {
                 advance_rainbow(&mut current_hue)
             } else {
@@ -305,11 +308,15 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    file_log(&format!("8. Exited while loop! running={}", running.load(Ordering::Relaxed)));
+
     // 8. Graceful shutdown cleanup
     let _ = device.set_static_uniform([0, 0, 0]);
     listener.stop();
     server.shutdown();
     drop(mutex);
+
+    file_log("9. run_daemon finished.");
 
     Ok(())
 }
