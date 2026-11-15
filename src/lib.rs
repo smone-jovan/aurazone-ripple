@@ -7,10 +7,16 @@ pub mod gui;
 pub mod hid;
 pub mod hook;
 pub mod ipc;
+pub mod patcher;
 pub mod physics;
+pub mod tray;
 
-pub use config::{ConfigError, Preset, RippleConfig};
+pub use config::{ConfigError, Preset, ProfileData, RippleConfig};
 pub use daemon::run_daemon;
+pub use patcher::{
+    find_ghelper_exe_path, patch_ghelper_buffer, patch_ghelper_file, unpatch_ghelper_buffer,
+    unpatch_ghelper_file, PatchError, ORIGINAL_BYTES, PATCHED_BYTES, TARGET_SIGNATURE,
+};
 pub use gui::run_gui;
 pub use ghelper::{
     get_ghelper_config_path, install_ghelper_binding, read_ghelper_config, restore_static_lighting,

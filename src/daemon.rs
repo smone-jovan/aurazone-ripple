@@ -163,6 +163,48 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut server = NamedPipeServer::start(pipe_name.clone(), handler, Arc::clone(&running))?;
 
+    // 6a. Spawn Windows System Tray Icon thread
+    let _tray_thread = crate::tray::TrayIconManager::new(Arc::clone(&running), Arc::clone(&active))
+        .spawn_thread();
+
+    // 6b. Spawn G-Helper Config Watcher thread (Auto-Nyala saat Ripple (8), Auto-Pause saat mode lain)
+    let ghelper_active = Arc::clone(&active);
+    let ghelper_running = Arc::clone(&running);
+    let ghelper_path = crate::ghelper::get_ghelper_config_path();
+
+    let _ghelper_watcher = thread::Builder::new()
+        .name("AuraZone_GHelperWatcher".to_string())
+        .spawn(move || {
+            let mut last_seen_mode: Option<i64> = None;
+            while ghelper_running.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(300));
+                if ghelper_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&ghelper_path) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(mode) = json.get("aura_mode").and_then(|v| v.as_i64()) {
+                                if Some(mode) != last_seen_mode {
+                                    last_seen_mode = Some(mode);
+                                    if mode == 8 {
+                                        // G-Helper switched to Ripple mode!
+                                        if !ghelper_active.load(Ordering::SeqCst) {
+                                            ghelper_active.store(true, Ordering::SeqCst);
+                                            println!("[G-Helper] Mode Ripple (8) aktif -> AuraZone Auto-Nyala.");
+                                        }
+                                    } else {
+                                        // G-Helper switched to another mode (Static, Breathe, Color Cycle, etc.)
+                                        if ghelper_active.load(Ordering::SeqCst) {
+                                            ghelper_active.store(false, Ordering::SeqCst);
+                                            println!("[G-Helper] Mode {} aktif -> AuraZone Auto-Pause.", mode);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
     // 7. 50 FPS Superposition Engine Loop
     let mut engine = RippleEngine::new();
     let mut current_hue = 0.0f32;

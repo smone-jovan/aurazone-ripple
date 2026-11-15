@@ -45,6 +45,18 @@ pub struct CliArgs {
     /// Switch to user profile slot (1 or 2)
     #[arg(short, long, value_parser = clap::value_parser!(u8))]
     pub profile: Option<u8>,
+
+    /// Patch G-Helper to unhide official "Ripple" mode in UI dropdown
+    #[arg(long = "patch-ghelper")]
+    pub patch_ghelper: bool,
+
+    /// Unpatch G-Helper and restore original binary
+    #[arg(long = "unpatch-ghelper")]
+    pub unpatch_ghelper: bool,
+
+    /// Custom path to GHelper.exe (optional override)
+    #[arg(long = "ghelper-path")]
+    pub ghelper_path: Option<std::path::PathBuf>,
 }
 
 fn spawn_daemon_background(mock: bool) {
@@ -138,6 +150,53 @@ fn main() {
         }
         println!("Switched to Profil {}.", slot);
         let _ = aura_zone_ripple::ipc::send_ipc_command("RELOAD");
+    } else if args.patch_ghelper {
+        let exe_path = args.ghelper_path.or_else(aura_zone_ripple::find_ghelper_exe_path);
+        match exe_path {
+            Some(path) => {
+                println!("Menemukan GHelper.exe di: {}", path.display());
+                match aura_zone_ripple::patch_ghelper_file(&path) {
+                    Ok(_) => {
+                        println!("========================================================");
+                        println!(" [OK] G-Helper BERHASIL DI-PATCH SECARA AMAN!");
+                        println!(" [OK] Mode 'Ripple' resmi kini aktif di dropdown G-Helper!");
+                        println!(" [OK] Backup otomatis tersimpan di: {}.bak", path.display());
+                        println!(" [OK] Icon Tray AuraZone aktif berdampingan dengan G-Helper.");
+                        println!("========================================================");
+                        println!("Tips: Pengaturan warna, speed, & profil custom dapat");
+                        println!("      diakses kapan saja lewat Icon Tray di taskbar!");
+                    }
+                    Err(e) => {
+                        eprintln!("Gagal mem-patch G-Helper: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            None => {
+                eprintln!("Error: GHelper.exe tidak ditemukan secara otomatis.");
+                eprintln!("Gunakan: aurazone_ripple.exe --patch-ghelper --ghelper-path \"C:\\Path\\To\\GHelper.exe\"");
+                std::process::exit(1);
+            }
+        }
+    } else if args.unpatch_ghelper {
+        let exe_path = args.ghelper_path.or_else(aura_zone_ripple::find_ghelper_exe_path);
+        match exe_path {
+            Some(path) => {
+                match aura_zone_ripple::unpatch_ghelper_file(&path) {
+                    Ok(_) => {
+                        println!("[OK] G-Helper berhasil dikembalikan ke versi original.");
+                    }
+                    Err(e) => {
+                        eprintln!("Gagal unpatch G-Helper: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            None => {
+                eprintln!("Error: GHelper.exe tidak ditemukan.");
+                std::process::exit(1);
+            }
+        }
     } else if args.install_ghelper {
         match aura_zone_ripple::ghelper::install_ghelper_binding() {
             Ok(action) => {

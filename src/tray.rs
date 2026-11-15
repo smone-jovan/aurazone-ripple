@@ -1,0 +1,239 @@
+//! Windows System Tray Icon integration for AuraZoneRipple.
+//!
+//! Creates a lightweight native tray icon in the Windows notification area
+//! adjacent to G-Helper, allowing users to:
+//! - View running status
+//! - Click to launch the native minimalist GUI
+//! - Switch directly between Profil 1 and Profil 2
+//! - Toggle pause/resume
+//! - Exit the background daemon cleanly
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+#[cfg(windows)]
+use windows_sys::Win32::UI::Shell::{
+    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
+    NOTIFYICONDATAW,
+};
+#[cfg(windows)]
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
+    DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, PostQuitMessage, RegisterClassW,
+    SetForegroundWindow, TrackPopupMenu, TranslateMessage, HMENU, IDI_APPLICATION,
+    MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_RIGHTBUTTON, WM_APP,
+    WM_COMMAND, WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSW,
+    WS_OVERLAPPEDWINDOW,
+};
+
+pub const WM_TRAYICON: u32 = WM_APP + 101;
+pub const ID_TRAY_OPEN_GUI: usize = 2001;
+pub const ID_TRAY_PROFILE_1: usize = 2002;
+pub const ID_TRAY_PROFILE_2: usize = 2003;
+pub const ID_TRAY_TOGGLE: usize = 2004;
+pub const ID_TRAY_EXIT: usize = 2005;
+
+pub struct TrayIconManager {
+    running: Arc<AtomicBool>,
+    active: Arc<AtomicBool>,
+}
+
+impl TrayIconManager {
+    pub fn new(running: Arc<AtomicBool>, active: Arc<AtomicBool>) -> Self {
+        Self { running, active }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
+    }
+
+    /// Spawns the dedicated Windows message pump thread for the system tray icon.
+    pub fn spawn_thread(self) -> std::thread::JoinHandle<()> {
+        std::thread::Builder::new()
+            .name("AuraZone_TrayThread".to_string())
+            .spawn(move || {
+                #[cfg(windows)]
+                unsafe {
+                    self.run_tray_loop();
+                }
+            })
+            .expect("Failed to spawn tray icon thread")
+    }
+
+    #[cfg(windows)]
+    unsafe fn run_tray_loop(&self) {
+        let class_name: Vec<u16> = "AuraZone_TrayClass\0".encode_utf16().collect();
+        let h_instance = 0 as _;
+
+        let wnd_class = WNDCLASSW {
+            style: 0,
+            lpfnWndProc: Some(tray_window_proc),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: h_instance,
+            hIcon: LoadIconW(0 as _, IDI_APPLICATION),
+            hCursor: 0 as _,
+            hbrBackground: 0 as _,
+            lpszMenuName: std::ptr::null(),
+            lpszClassName: class_name.as_ptr(),
+        };
+
+        RegisterClassW(&wnd_class);
+
+        let hwnd = CreateWindowExW(
+            0,
+            class_name.as_ptr(),
+            class_name.as_ptr(),
+            WS_OVERLAPPEDWINDOW,
+            0,
+            0,
+            0,
+            0,
+            0 as _,
+            0 as _,
+            h_instance,
+            std::ptr::null(),
+        );
+
+        if hwnd == 0 as _ {
+            return;
+        }
+
+        // Setup notification icon data
+        let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
+        nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+        nid.hWnd = hwnd;
+        nid.uID = 1;
+        nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_INFO;
+        nid.uCallbackMessage = WM_TRAYICON;
+        nid.hIcon = LoadIconW(0 as _, IDI_APPLICATION);
+
+        let tip = "⚡ AuraZone Ripple (ASUS ROG)\0";
+        for (i, c) in tip.encode_utf16().take(127).enumerate() {
+            nid.szTip[i] = c;
+        }
+
+        let info_title = "⚡ AuraZone Ripple Aktif\0";
+        for (i, c) in info_title.encode_utf16().take(63).enumerate() {
+            nid.szInfoTitle[i] = c;
+        }
+
+        let info_msg = "Pengaturan & profil custom dapat diakses kapan saja lewat icon tray ini!\0";
+        for (i, c) in info_msg.encode_utf16().take(255).enumerate() {
+            nid.szInfo[i] = c;
+        }
+
+        Shell_NotifyIconW(NIM_ADD, &nid);
+
+        // Standard Win32 Message Loop
+        let mut msg: MSG = std::mem::zeroed();
+        while self.running.load(Ordering::SeqCst) && GetMessageW(&mut msg, 0 as _, 0, 0) > 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+
+        Shell_NotifyIconW(NIM_DELETE, &nid);
+        DestroyWindow(hwnd);
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn tray_window_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_TRAYICON => {
+            let event = lparam as u32;
+            if event == WM_RBUTTONUP {
+                show_tray_menu(hwnd);
+            } else if event == WM_LBUTTONDBLCLK || event == WM_LBUTTONUP {
+                spawn_gui_process();
+            }
+            0
+        }
+        WM_COMMAND => {
+            let cmd_id = (wparam & 0xFFFF) as usize;
+            match cmd_id {
+                ID_TRAY_OPEN_GUI => spawn_gui_process(),
+                ID_TRAY_PROFILE_1 => {
+                    let _ = std::process::Command::new(std::env::current_exe().unwrap_or_default())
+                        .args(["--profile", "1"])
+                        .spawn();
+                }
+                ID_TRAY_PROFILE_2 => {
+                    let _ = std::process::Command::new(std::env::current_exe().unwrap_or_default())
+                        .args(["--profile", "2"])
+                        .spawn();
+                }
+                ID_TRAY_TOGGLE => {
+                    let _ = crate::ipc::send_ipc_command("TOGGLE");
+                }
+                ID_TRAY_EXIT => {
+                    let _ = crate::ipc::send_ipc_command("STOP");
+                    PostQuitMessage(0);
+                }
+                _ => {}
+            }
+            0
+        }
+        WM_DESTROY => {
+            PostQuitMessage(0);
+            0
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+#[cfg(windows)]
+unsafe fn show_tray_menu(hwnd: HWND) {
+    let mut pt: POINT = std::mem::zeroed();
+    GetCursorPos(&mut pt);
+
+    let hmenu: HMENU = CreatePopupMenu();
+
+    let item_gui: Vec<u16> = "⚡ Buka Pengaturan GUI\0".encode_utf16().collect();
+    let item_p1: Vec<u16> = "★ Aktifkan Profil 1\0".encode_utf16().collect();
+    let item_p2: Vec<u16> = "★ Aktifkan Profil 2\0".encode_utf16().collect();
+    let item_toggle: Vec<u16> = "⏸ Pause / Resume Ripple\0".encode_utf16().collect();
+    let item_exit: Vec<u16> = "✖ Tutup AuraZone Daemon\0".encode_utf16().collect();
+
+    AppendMenuW(hmenu, MF_STRING, ID_TRAY_OPEN_GUI, item_gui.as_ptr());
+    AppendMenuW(hmenu, MF_SEPARATOR, 0, std::ptr::null());
+    AppendMenuW(hmenu, MF_STRING, ID_TRAY_PROFILE_1, item_p1.as_ptr());
+    AppendMenuW(hmenu, MF_STRING, ID_TRAY_PROFILE_2, item_p2.as_ptr());
+    AppendMenuW(hmenu, MF_STRING, ID_TRAY_TOGGLE, item_toggle.as_ptr());
+    AppendMenuW(hmenu, MF_SEPARATOR, 0, std::ptr::null());
+    AppendMenuW(hmenu, MF_STRING, ID_TRAY_EXIT, item_exit.as_ptr());
+
+    SetForegroundWindow(hwnd);
+    TrackPopupMenu(
+        hmenu,
+        TPM_BOTTOMALIGN | TPM_LEFTALIGN | TPM_RIGHTBUTTON,
+        pt.x,
+        pt.y,
+        0,
+        hwnd,
+        std::ptr::null(),
+    );
+    DestroyMenu(hmenu);
+}
+
+fn spawn_gui_process() {
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cmd = std::process::Command::new(exe);
+        cmd.arg("--gui");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            const DETACHED_PROCESS: u32 = 0x00000008;
+            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+        }
+        let _ = cmd.spawn();
+    }
+}

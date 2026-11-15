@@ -712,6 +712,36 @@ fn test_t1_f10_profile_backward_compatibility_old_json() {
     assert_eq!(config.profile_2.name, "Profil 2");
 }
 
+#[test]
+fn test_t1_f13_patch_ghelper_buffer_flow() {
+    use aura_zone_ripple::patcher::{
+        patch_ghelper_buffer, unpatch_ghelper_buffer, PatchError, ORIGINAL_BYTES, PATCHED_BYTES,
+        TARGET_SIGNATURE,
+    };
+
+    let mut buf = Vec::new();
+    buf.extend_from_slice(b"PREFIX_PADDING_DUMMY_DATA_12345");
+    buf.extend_from_slice(&TARGET_SIGNATURE);
+    buf.extend_from_slice(b"SUFFIX_PADDING_DUMMY_DATA_67890");
+
+    let off = patch_ghelper_buffer(&mut buf).expect("Patch must succeed on valid signature");
+    assert_eq!(off, 31);
+    assert_eq!(&buf[off..off + 8], &PATCHED_BYTES);
+
+    // Double patch should fail with AlreadyPatched
+    let err = patch_ghelper_buffer(&mut buf).unwrap_err();
+    assert_eq!(err, PatchError::AlreadyPatched);
+
+    // Unpatch should restore original bytes
+    let unpatch_off = unpatch_ghelper_buffer(&mut buf).expect("Unpatch must succeed");
+    assert_eq!(unpatch_off, 31);
+    assert_eq!(&buf[unpatch_off..unpatch_off + 8], &ORIGINAL_BYTES);
+
+    // Double unpatch should fail with NotPatched
+    let unpatch_err = unpatch_ghelper_buffer(&mut buf).unwrap_err();
+    assert_eq!(unpatch_err, PatchError::NotPatched);
+}
+
 // ============================================================================
 // TIER 2: BOUNDARY & CORNER CASES
 // ============================================================================
