@@ -233,6 +233,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     let cascade = Duration::from_millis(LIGHTBAR_CASCADE_DELAY_MS);
     let frame_interval = Duration::from_millis(FRAME_INTERVAL_MS);
     let mut was_active = false;
+    let mut reprime_countdown: u32 = 0;
 
     while running.load(Ordering::Relaxed) && GLOBAL_RUNNING.load(Ordering::Relaxed) {
         let frame_start = Instant::now();
@@ -240,13 +241,10 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         let cfg = shared_config.read().clone();
 
         // If daemon is paused (e.g. G-Helper is in Static, Breathe, Color Cycle mode):
-        // NEVER send frames to hardware! Let G-Helper control lighting without conflict.
+        // NEVER send ANY frames to hardware! Pure zero-packet state lets G-Helper control lighting cleanly.
         if !is_active {
-            if was_active {
-                was_active = false;
-                // Transitioned from Active to Paused: immediately apply G-Helper's static color!
-                let _ = crate::ghelper::restore_static_lighting(mock);
-            }
+            was_active = false;
+            reprime_countdown = 0;
             for (z, c) in [cfg.color_base; 8].iter().enumerate() {
                 let u32_val = ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | (c[2] as u32);
                 ui_preview[z].store(u32_val, Ordering::Relaxed);
@@ -256,10 +254,14 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if !was_active || need_reprime.swap(false, Ordering::SeqCst) {
-            // Re-prime microcontroller into Direct Mode 0xBC so it accepts 50 FPS software frames
+            // Re-prime microcontroller into Direct Mode 0xBC over a 300 ms window (15 frames)
+            // to guarantee Direct Mode overrides G-Helper's trailing 0xB4 builtin packets
+            reprime_countdown = 15;
+        }
+        if reprime_countdown > 0 {
+            reprime_countdown -= 1;
             let handshake = crate::hid::encode_handshake();
             let _ = device.send_feature(&handshake);
-            thread::sleep(Duration::from_millis(30));
         }
         was_active = true;
 
