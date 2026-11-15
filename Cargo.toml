@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["ROG User"]
 description = "Low-memory native reactive 4-zone RGB ripple lighting for ASUS ROG Strix G513RC"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/smone-jovan/aurazone-ripple"
 
 [lib]
 name = "aura_zone_ripple"

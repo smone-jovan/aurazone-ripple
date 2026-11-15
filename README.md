@@ -6,7 +6,7 @@
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?logo=rust)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-blue.svg?logo=windows)](https://microsoft.com)
 [![Hardware](https://img.shields.io/badge/Hardware-ASUS%20ROG%20Strix%20G513-red.svg?logo=asus)](https://rog.asus.com)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#-license)
 [![Tests](https://img.shields.io/badge/Tests-142%20passed-brightgreen.svg)](tests/)
 
 ---
@@ -198,8 +198,10 @@ aurazone-ripple/
 │   ├── ghelper.rs           # G-Helper M5 binding installer & static profile restoration
 │   ├── lib.rs               # Crate library root & public exports
 │   └── main.rs              # CLI entry point router
-├── tests/                   # Automated 4-tier verification test suite (141 tests)
+├── tests/                   # Automated 4-tier verification test suite (142 tests)
 ├── python_prototype/        # Zero-dependency reference Python prototype & control panel
+├── LICENSE-MIT              # MIT License
+├── LICENSE-APACHE           # Apache 2.0 License
 ├── Cargo.toml               # Cargo package configuration
 └── README.md                # Project documentation
 ```
@@ -215,4 +217,9 @@ aurazone-ripple/
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is dual-licensed under either:
+
+- **MIT License** ([LICENSE-MIT](LICENSE-MIT))
+- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE))
+
+at your option.
