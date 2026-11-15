@@ -726,7 +726,7 @@ fn test_t1_f13_patch_ghelper_buffer_flow() {
 
     let off = patch_ghelper_buffer(&mut buf).expect("Patch must succeed on valid signature");
     assert_eq!(off, 31);
-    assert_eq!(&buf[off..off + 8], &PATCHED_BYTES);
+    assert_eq!(&buf[off..off + 3], &PATCHED_BYTES);
 
     // Double patch should fail with AlreadyPatched
     let err = patch_ghelper_buffer(&mut buf).unwrap_err();
@@ -735,7 +735,7 @@ fn test_t1_f13_patch_ghelper_buffer_flow() {
     // Unpatch should restore original bytes
     let unpatch_off = unpatch_ghelper_buffer(&mut buf).expect("Unpatch must succeed");
     assert_eq!(unpatch_off, 31);
-    assert_eq!(&buf[unpatch_off..unpatch_off + 8], &ORIGINAL_BYTES);
+    assert_eq!(&buf[unpatch_off..unpatch_off + 3], &ORIGINAL_BYTES);
 
     // Double unpatch should fail with NotPatched
     let unpatch_err = unpatch_ghelper_buffer(&mut buf).unwrap_err();

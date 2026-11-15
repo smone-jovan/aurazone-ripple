@@ -1,19 +1,24 @@
-//! G-Helper binary patcher: in-place 8-byte patch to unhide official "Ripple" mode.
+//! G-Helper binary patcher: in-place surgical branch patch to unhide EXCLUSIVELY "Ripple" mode.
 //!
-//! Replaces the `BacklightType == PerKey` check in `Aura.GetModes()` with an unconditional
-//! true (`ldc.i4.1` + 7 `nop`s), making G-Helper expose "Ripple" in its UI dropdown
-//! without altering file size or corrupting single-file bundle offsets.
+//! Rather than turning on all non-functional PerKey modes (Star, Rain, Laser, Highlight, Comet, Flash),
+//! this targeted patch modifies the conditional branch `brfalse.s 0x3c` (jump over all 5 modes)
+//! to `brfalse.s 0x30` (jump over Star, Rain, Highlight, Laser, landing directly on Ripple).
+//!
+//! Result:
+//! - Star, Rain, Highlight, Laser -> SKIPPED (not shown in UI)
+//! - Ripple -> UNHIDDEN & EXPOSED (modes[Ripple] = "Ripple")
+//! - Comet, Flash -> SKIPPED (second if (perKey) remains false)
+//! - File size & metadata -> 100% UNCHANGED (zero corruption risk)
 
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-pub const TARGET_SIGNATURE: [u8; 21] = [
-    0x28, 0x85, 0x04, 0x00, 0x06, 0x19, 0xfe, 0x01, 0x28, 0x85, 0x04, 0x00, 0x06, 0x18, 0xfe, 0x01,
-    0x0b, 0x25, 0x07, 0x60, 0x0c,
+pub const TARGET_SIGNATURE: [u8; 10] = [
+    0x25, 0x2c, 0x3c, 0x06, 0x1a, 0x72, 0x94, 0xd1, 0x00, 0x70,
 ];
 
-pub const ORIGINAL_BYTES: [u8; 8] = [0x28, 0x85, 0x04, 0x00, 0x06, 0x19, 0xfe, 0x01];
-pub const PATCHED_BYTES: [u8; 8] = [0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+pub const ORIGINAL_BYTES: [u8; 3] = [0x25, 0x2c, 0x3c];
+pub const PATCHED_BYTES: [u8; 3] = [0x25, 0x2c, 0x30];
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum PatchError {
@@ -29,11 +34,11 @@ pub enum PatchError {
     Io(String),
 }
 
-/// Applies the in-place 8-byte patch to an in-memory buffer of `GHelper.exe`.
+/// Applies the in-place surgical branch patch to an in-memory buffer of `GHelper.exe`.
 pub fn patch_ghelper_buffer(data: &mut [u8]) -> Result<usize, PatchError> {
     // 1. Check if already patched
     let mut patched_sig = TARGET_SIGNATURE;
-    patched_sig[..8].copy_from_slice(&PATCHED_BYTES);
+    patched_sig[..3].copy_from_slice(&PATCHED_BYTES);
 
     let patched_matches: Vec<usize> = data
         .windows(patched_sig.len())
@@ -56,17 +61,17 @@ pub fn patch_ghelper_buffer(data: &mut [u8]) -> Result<usize, PatchError> {
         0 => Err(PatchError::SignatureNotFound),
         1 => {
             let offset = matches[0];
-            data[offset..offset + 8].copy_from_slice(&PATCHED_BYTES);
+            data[offset..offset + 3].copy_from_slice(&PATCHED_BYTES);
             Ok(offset)
         }
         n => Err(PatchError::AmbiguousSignature(n)),
     }
 }
 
-/// Restores the original 8 bytes to an in-memory buffer of `GHelper.exe`.
+/// Restores the original 3 bytes to an in-memory buffer of `GHelper.exe`.
 pub fn unpatch_ghelper_buffer(data: &mut [u8]) -> Result<usize, PatchError> {
     let mut patched_sig = TARGET_SIGNATURE;
-    patched_sig[..8].copy_from_slice(&PATCHED_BYTES);
+    patched_sig[..3].copy_from_slice(&PATCHED_BYTES);
 
     let matches: Vec<usize> = data
         .windows(patched_sig.len())
@@ -85,7 +90,7 @@ pub fn unpatch_ghelper_buffer(data: &mut [u8]) -> Result<usize, PatchError> {
         }
         1 => {
             let offset = matches[0];
-            data[offset..offset + 8].copy_from_slice(&ORIGINAL_BYTES);
+            data[offset..offset + 3].copy_from_slice(&ORIGINAL_BYTES);
             Ok(offset)
         }
         n => Err(PatchError::AmbiguousSignature(n)),
@@ -230,7 +235,7 @@ mod tests {
         // First patch
         let offset = patch_ghelper_buffer(&mut buffer).expect("Patch must succeed");
         assert_eq!(offset, 31);
-        assert_eq!(&buffer[offset..offset + 8], &PATCHED_BYTES);
+        assert_eq!(&buffer[offset..offset + 3], &PATCHED_BYTES);
 
         // Attempting second patch must return AlreadyPatched
         let err = patch_ghelper_buffer(&mut buffer).unwrap_err();
@@ -239,7 +244,7 @@ mod tests {
         // Unpatch
         let unpatch_off = unpatch_ghelper_buffer(&mut buffer).expect("Unpatch must succeed");
         assert_eq!(unpatch_off, 31);
-        assert_eq!(&buffer[unpatch_off..unpatch_off + 8], &ORIGINAL_BYTES);
+        assert_eq!(&buffer[unpatch_off..unpatch_off + 3], &ORIGINAL_BYTES);
 
         // Attempting second unpatch must return NotPatched
         let unpatch_err = unpatch_ghelper_buffer(&mut buffer).unwrap_err();
