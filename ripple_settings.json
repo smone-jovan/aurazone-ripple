@@ -1,0 +1,18 @@
+{
+  "preset": "Matrix",
+  "speed": 1.2,
+  "decay": 0.8,
+  "attack": 0.15,
+  "lightbar_delay_ms": 35,
+  "rainbow": false,
+  "color_base": [
+    0,
+    55,
+    0
+  ],
+  "color_ripple": [
+    105,
+    255,
+    0
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "sync_with_ghelper": false,
+  "dim_base_lighting": true,
+  "base_dim_factor": 0.2,
+  "custom_base_color": [
+    10,
+    10,
+    20
+  ],
+  "custom_ripple_color": [
+    255,
+    255,
+    255
+  ],
+  "use_ghelper_color2_as_ripple": true,
+  "wave_speed": 0.071,
+  "ripple_duration": 0.4,
+  "lightbar_enabled": true,
+  "lightbar_cascade_delay": 0.035,
+  "target_fps": 50,
+  "rainbow_mode": true
+}
