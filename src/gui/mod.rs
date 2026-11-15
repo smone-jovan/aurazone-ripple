@@ -1,4 +1,4 @@
-//! LenovoRGB-themed Native GUI application using egui/eframe.
+//! Modern Cyberpunk Native GUI application using egui/eframe.
 //!
 //! Provides real-time 4-zone keyboard & wraparound lightbar visualizer,
 //! parameter controls, preset switcher, and dual-mode synchronization
@@ -185,7 +185,7 @@ impl eframe::App for AuraGuiApp {
             self.preview_zones = [u32_base; 8];
         }
 
-        // 3. Render LenovoRGB Cyberpunk Interface
+        // 3. Render Cyberpunk Interface
         egui::CentralPanel::default()
             .frame(egui::Frame {
                 fill: COLOR_BG_OBSIDIAN,
@@ -203,7 +203,7 @@ impl eframe::App for AuraGuiApp {
                                 .strong(),
                         );
                         ui.label(
-                            egui::RichText::new("ASUS ROG Strix G513RC • LenovoRGB Stealth Edition")
+                            egui::RichText::new("ASUS ROG Strix G513RC • Stealth Edition")
                                 .color(COLOR_TEXT_MUTED)
                                 .size(11.0),
                         );
@@ -403,13 +403,13 @@ impl eframe::App for AuraGuiApp {
     }
 }
 
-/// Launches the LenovoRGB native GUI application window.
+/// Launches the native GUI application window.
 pub fn run_gui() -> Result<(), eframe::Error> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([580.0, 750.0])
             .with_min_inner_size([520.0, 640.0])
-            .with_title("AuraZoneRipple — LenovoRGB Control Center"),
+            .with_title("AuraZoneRipple — Aura Control Center"),
         ..Default::default()
     };
 
@@ -417,7 +417,7 @@ pub fn run_gui() -> Result<(), eframe::Error> {
         "AuraZoneRipple",
         native_options,
         Box::new(|cc| {
-            theme::apply_lenovorgb_theme(&cc.egui_ctx);
+            theme::apply_cyberpunk_theme(&cc.egui_ctx);
             Ok(Box::new(AuraGuiApp::new()))
         }),
     )

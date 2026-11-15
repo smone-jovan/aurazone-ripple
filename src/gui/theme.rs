@@ -1,6 +1,6 @@
-//! LenovoRGB visual styling and dark cyberpunk palette for eframe/egui.
+//! Modern visual styling and dark cyberpunk palette for eframe/egui.
 //!
-//! Inspired by Shushant17711/LenovoRGB and ROG Strix aesthetics:
+//! Crafted for ROG Strix aesthetics:
 //! Obsidian stealth background, slate card panels, high-contrast neon accents,
 //! rounded corners, and glowing hover states.
 
@@ -18,8 +18,8 @@ pub const COLOR_CRIMSON_RED: Color32 = Color32::from_rgb(255, 51, 102); // #FF33
 pub const COLOR_TEXT_ICE: Color32 = Color32::from_rgb(240, 242, 250); // #F0F2FA (Crisp Ice White)
 pub const COLOR_TEXT_MUTED: Color32 = Color32::from_rgb(138, 142, 158); // #8A8E9E (Muted Description)
 
-/// Configures the egui Context with the LenovoRGB stealth dark theme.
-pub fn apply_lenovorgb_theme(ctx: &Context) {
+/// Configures the egui Context with the stealth dark cyberpunk theme.
+pub fn apply_cyberpunk_theme(ctx: &Context) {
     let mut visuals = Visuals::dark();
 
     // Backgrounds

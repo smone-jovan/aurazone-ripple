@@ -144,7 +144,7 @@ def is_running():
 class RippleControlPanel(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("ASUS ROG Strix - Aura Ripple Control Center (LenovoRGB Themed)")
+        self.title("ASUS ROG Strix - Aura Ripple Control Center")
         self.geometry("560x780")
         self.resizable(False, False)
         self.configure(bg="#101014")
@@ -180,7 +180,7 @@ class RippleControlPanel(tk.Tk):
         lbl_title = tk.Label(hdr, text="AURA ZONE RIPPLE", font=("Segoe UI", 15, "bold"), fg=self.c_accent, bg=self.c_bg)
         lbl_title.pack(anchor="w")
 
-        lbl_sub = tk.Label(hdr, text="ASUS ROG Strix G513RC • LenovoRGB Edition", font=("Segoe UI", 9), fg=self.c_muted, bg=self.c_bg)
+        lbl_sub = tk.Label(hdr, text="ASUS ROG Strix G513RC • Stealth Edition", font=("Segoe UI", 9), fg=self.c_muted, bg=self.c_bg)
         lbl_sub.pack(anchor="w")
 
         # Status & Toggle Header Card

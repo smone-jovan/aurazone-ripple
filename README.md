@@ -1,7 +1,7 @@
 # ⚡ AuraZoneRipple
 
 > **Ultra-Low Memory 4-Zone Reactive Ripple RGB Lighting Extension for ASUS ROG Strix Laptops & G-Helper**  
-> *Written in pure native Rust with a LenovoRGB-inspired cyberpunk GUI.*
+> *Written in pure native Rust with a modern dark cyberpunk GUI.*
 
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?logo=rust)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-blue.svg?logo=windows)](https://microsoft.com)
@@ -14,7 +14,7 @@
 
 Most ASUS ROG laptops equipped with **4-Zone RGB keyboards** (such as the **ROG Strix G513RC**) lack native firmware support for per-key reactive ripple lighting. Official software (Armoury Crate) and lightweight controllers (G-Helper) restrict 4-zone models to static, breathing, or color-cycle modes.
 
-Inspired by open-source community toolkits for Lenovo LOQ/Legion laptops (`LenovoRGB` by *Shushant17711*), **AuraZoneRipple** brings **real-time reactive ripple typing** to ASUS ROG 4-Zone laptops through a software-driven high-frequency (50 FPS) USB HID direct pipeline.
+**AuraZoneRipple** brings **real-time reactive ripple typing** to ASUS ROG 4-Zone laptops through a software-driven high-frequency (50 FPS) USB HID direct pipeline.
 
 Unlike heavy RGB suites (SignalRGB, Armoury Crate) that consume hundreds of megabytes of RAM and multiple CPU cores, AuraZoneRipple is written in **native Rust**, consuming **less than 9 MB of RAM** and **under 0.2% CPU**.
 
@@ -24,7 +24,7 @@ Unlike heavy RGB suites (SignalRGB, Armoury Crate) that consume hundreds of mega
 
 - **🌊 4-Zone Keyboard + Front Wraparound Lightbar Waterfall**:
   - Keystrokes in any zone trigger smooth, cosine-eased wave ripples that propagate across the 4 keyboard zones and cascade downward onto the front underglow lightbar.
-- **🖥️ LenovoRGB-Themed Native GUI (`egui/eframe`)**:
+- **🖥️ Modern Cyberpunk Native GUI (`egui/eframe`)**:
   - Beautiful dark cyberpunk interface built with immediate-mode Rust GUI.
   - Live interactive keyboard deck & front lightbar visualizer connected in real time to physical keystrokes.
   - Real-time sliders for wave speed, decay duration, idle brightness dimming, and cascade delay.
@@ -153,7 +153,7 @@ USAGE:
 
 OPTIONS:
     --daemon              Run as background service daemon (Named Pipe IPC server)
-    --gui                 Launch the LenovoRGB-themed Native GUI control center
+    --gui                 Launch the modern cyberpunk Native GUI control center
     --toggle              Toggle ripple effect on/off (auto-spawns daemon if idle)
     --status              Query running daemon status and active preset
     --stop                Gracefully stop the background daemon and restore static lighting
@@ -174,7 +174,7 @@ aurazone-ripple/
 │   ├── hook/                # Win32 low-level keyboard hook & async key poller
 │   ├── physics/             # Two-phase wave easing, superposition, & lightbar cascade
 │   ├── ipc/                 # Windows Named Pipe server/client & single-instance mutex
-│   ├── gui/                 # LenovoRGB dark cyberpunk GUI (egui/eframe/glow)
+│   ├── gui/                 # Modern dark cyberpunk GUI (egui/eframe/glow)
 │   ├── config.rs            # Preset management and atomic JSON configuration
 │   ├── daemon.rs            # High-performance 50 FPS daemon orchestrator
 │   ├── ghelper.rs           # G-Helper M5 binding installer & profile sync
@@ -190,7 +190,6 @@ aurazone-ripple/
 ## 🤝 Acknowledgements
 
 - **[G-Helper](https://github.com/seerge/g-helper)** by `seerge` — The amazing lightweight control tool for ASUS laptops.
-- **[LenovoRGB](https://github.com/Shushant17711/LenovoRGB)** by `Shushant17711` — Design and concept inspiration for 4-zone reactive typing.
 - **[OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB)** — Hardware documentation for ASUS Aura USB endpoints.
 
 ---

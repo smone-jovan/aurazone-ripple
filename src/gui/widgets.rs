@@ -1,4 +1,4 @@
-//! Custom visualizer and control widgets for the LenovoRGB-themed GUI.
+//! Custom visualizer and control widgets for the Cyberpunk-themed GUI.
 //!
 //! Includes:
 //! 1. Procedural 4-Zone Keyboard Deck Visualizer (Zones 0..3)

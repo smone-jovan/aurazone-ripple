@@ -299,7 +299,7 @@ impl TempConfigFixture {
 }"#;
         std::fs::write(&ghelper_config_path, ghelper_initial)?;
 
-        // Seed default LenovoRGB ripple settings
+        // Seed default ripple settings
         let settings_initial = r#"{
   "preset": "Cyberpunk",
   "speed": 1.0,

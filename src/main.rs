@@ -38,7 +38,7 @@ pub struct CliArgs {
     #[arg(long = "install-ghelper")]
     pub install_ghelper: bool,
 
-    /// Launch LenovoRGB-themed GUI
+    /// Launch modern Cyberpunk GUI
     #[arg(short, long)]
     pub gui: bool,
 }
@@ -133,7 +133,7 @@ fn main() {
             spawn_daemon_background(args.mock);
         }
         if let Err(e) = aura_zone_ripple::gui::run_gui() {
-            eprintln!("Failed to launch LenovoRGB GUI: {}", e);
+            eprintln!("Failed to launch GUI: {}", e);
             std::process::exit(1);
         }
     } else {
