@@ -30,8 +30,8 @@ Unlike heavy RGB suites (SignalRGB, Armoury Crate) that consume hundreds of mega
   - Real-time sliders for wave speed, decay duration, idle brightness dimming, and cascade delay.
   - 6 One-Click Presets: *Cyberpunk, Volcano, Matrix, Synthwave, Rainbow Keystrokes, and Stealth*.
 - **🎮 Seamless G-Helper Integration**:
-  - Automatically hooks into G-Helper via the physical **M5 (ROG Eye)** macro key: press M5 once to toggle the ripple effect on or off!
-  - Syncs directly with G-Helper active profile colors and brightness settings.
+  - Syncs directly with G-Helper active profile colors, modes, and brightness settings without modifying or overriding your physical laptop macro keys.
+  - Can be run as a standalone application, through desktop shortcuts, or as a background service.
 - **⚡ Ultra-Low Resource Footprint**:
   - **~8.6 MB Working Set RAM** in background daemon mode.
   - **< 0.2% CPU utilization** using Windows asynchronous key state polling and low-level Win32 hooks.
@@ -68,10 +68,6 @@ Reverse engineered from ASUS N-Key HID controller communications (`GHelper.USB.A
 2. Double-click to run live in console, or launch the GUI:
    ```cmd
    aurazone_ripple.exe --gui
-   ```
-3. Bind your laptop's **M5** key in G-Helper automatically:
-   ```cmd
-   aurazone_ripple.exe --install-ghelper
    ```
 
 ### Option 2: Build from Source
