@@ -38,7 +38,7 @@ pub struct CliArgs {
     #[arg(long = "install-ghelper")]
     pub install_ghelper: bool,
 
-    /// Launch modern Cyberpunk GUI
+    /// Launch sleek minimalist GUI
     #[arg(short, long)]
     pub gui: bool,
 }

@@ -1,10 +1,10 @@
-//! Custom visualizer and control widgets for the Cyberpunk-themed GUI.
+//! Custom visualizer and control widgets for the Minimalist GUI.
 //!
 //! Includes:
 //! 1. Procedural 4-Zone Keyboard Deck Visualizer (Zones 0..3)
 //! 2. Wraparound Under-Chassis Lightbar Visualizer (Zones 4..7)
 //! 3. Interactive Parameter Controls (Speed, Duration, Dimming, Cascade, Colors, Rainbow)
-//! 4. 6-Preset Quick Switcher Badges with Cyberpunk styling
+//! 4. 6-Preset Quick Switcher Badges with Minimalist styling
 
 use eframe::egui::{
     self, Align2, Color32, FontId, Pos2, Rect, Rounding, Sense, Stroke, Ui, Vec2,

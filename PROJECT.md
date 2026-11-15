@@ -4,7 +4,7 @@
 - **Hardware Abstraction Layer (`src/hid/`)**: Direct USB HID interface to ASUS N-Key device (`VID 0x0B05`, `PID 0x19B6`, `Col05`, Report ID `0x5D`, Direct Command `0xBC`, 64-byte buffer).
 - **Input Capture & Physics Engine (`src/hook/`, `src/physics/`)**: Win32 `WH_KEYBOARD_LL` low-level hook + `GetAsyncKeyState` async poller, static LUT VK mapping, fixed inline debounce filter, two-phase easing curves, HSV rainbow progression, 50 FPS superposition engine with lockless atomic UI preview (`Arc<[AtomicU32; 8]>`).
 - **Windows Named Pipe IPC Subsystem (`src/ipc/`, `src/daemon.rs`, `src/ghelper.rs`)**: Win32 `CreateMutexW` single-instance enforcement, multi-client duplex named pipe server (`\\.\pipe\AuraZoneRipple_IPC`), CLI commands (`--daemon`, `--toggle`, `--status`, `--stop`), G-Helper M5 hotkey integration.
-- **Modern Cyberpunk Native GUI (`src/gui/`)**: Low-memory `eframe/egui` with `glow` OpenGL backend, dark cyberpunk/stealth palette, interactive parameter sliders, preset switcher, and live 4-zone + wraparound lightbar visualizer.
+- **Sleek Minimalist Native GUI (`src/gui/`)**: Low-memory `eframe/egui` with `glow` OpenGL backend, clean minimalist dark palette, interactive parameter sliders, preset switcher, and live 4-zone + wraparound lightbar visualizer.
 - **End-to-End Testing & Release Packaging**: 4-Tier requirement test matrix (123 scenarios across 126 test functions, 133 automated tests total), standalone release binary (`target/release/aurazone_ripple.exe`) with LTO, strip, and zero non-system DLL dependencies.
 
 ## Feature Inventory
@@ -19,7 +19,7 @@
 | F7 | G-Helper Integration | --install-ghelper binding M5 key, --restore profile color | M3 | Survey / ORIGINAL_REQUEST |
 | F8 | Win32 Keyboard Hook & Poller | WH_KEYBOARD_LL + GetAsyncKeyState with UIPI bypass | M2 | Survey / Codebase |
 | F9 | Wave Physics & Color Engine | Two-phase easing, 50 FPS superposition, atomic preview | M2 | Survey / Codebase |
-| F10 | Cyberpunk Native GUI | eframe/glow low-memory GUI, dark palette, live visualizer | M4 | Survey / ORIGINAL_REQUEST |
+| F10 | Minimalist Native GUI | eframe/glow low-memory GUI, dark palette, live visualizer | M4 | Survey / ORIGINAL_REQUEST |
 | F11 | E2E Automated Verification | 100% pass across protocol, physics, and e2e_cli test suites | M5 | Survey / TEST_READY |
 | F12 | Release Packaging | target/release/aurazone_ripple.exe standalone optimization | M5 | Survey / ORIGINAL_REQUEST |
 
@@ -29,7 +29,7 @@
 | 1 | HID Protocol & HAL | crates/aura_zone_ripple (src/hid) | none | DONE |
 | 2 | Hook & Physics Engine | src/hook/, src/physics/ | M1 | DONE |
 | 3 | Named Pipe IPC & CLI Daemon | src/ipc/, src/daemon.rs, src/ghelper.rs, src/main.rs | M2 | DONE |
-| 4 | Cyberpunk Native GUI | src/gui/ (mod, theme, widgets, ipc_sync), Cargo.toml | M3 | DONE |
+| 4 | Minimalist Native GUI | src/gui/ (mod, theme, widgets, ipc_sync), Cargo.toml | M3 | DONE |
 | 5 | E2E Verification & Packaging | full test suite execution, target/release binary sign-off | M3, M4 | DONE |
 
 ## Interface Contracts
@@ -54,5 +54,5 @@
 - `src/ipc/` — Named Pipe IPC server, client, mutex, and protocol definitions
 - `src/daemon.rs` — Background service lifecycle orchestrator
 - `src/ghelper.rs` — G-Helper config reader/writer
-- `src/gui/` — Cyberpunk native GUI (`mod.rs`, `theme.rs`, `widgets.rs`, `ipc_sync.rs`)
+- `src/gui/` — Minimalist native GUI (`mod.rs`, `theme.rs`, `widgets.rs`, `ipc_sync.rs`)
 - `tests/` — Automated test suites (`protocol_tests.rs`, `physics_tests.rs`, `e2e_cli_tests.rs`, `harness/`)

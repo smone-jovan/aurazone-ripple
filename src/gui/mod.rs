@@ -1,4 +1,4 @@
-//! Modern Cyberpunk Native GUI application using egui/eframe.
+//! Sleek Minimalist Native GUI application using egui/eframe.
 //!
 //! Provides real-time 4-zone keyboard & wraparound lightbar visualizer,
 //! parameter controls, preset switcher, and dual-mode synchronization
@@ -185,7 +185,7 @@ impl eframe::App for AuraGuiApp {
             self.preview_zones = [u32_base; 8];
         }
 
-        // 3. Render Cyberpunk Interface
+        // 3. Render Minimalist Interface
         egui::CentralPanel::default()
             .frame(egui::Frame {
                 fill: COLOR_BG_OBSIDIAN,
@@ -417,7 +417,7 @@ pub fn run_gui() -> Result<(), eframe::Error> {
         "AuraZoneRipple",
         native_options,
         Box::new(|cc| {
-            theme::apply_cyberpunk_theme(&cc.egui_ctx);
+            theme::apply_minimalist_theme(&cc.egui_ctx);
             Ok(Box::new(AuraGuiApp::new()))
         }),
     )

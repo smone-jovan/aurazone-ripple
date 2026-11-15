@@ -151,7 +151,7 @@ class RippleControlPanel(tk.Tk):
 
         self.cfg = load_config()
 
-        # Modern Cyberpunk Palette
+        # Minimalist Dark Palette
         self.c_bg = "#101014"
         self.c_card = "#181822"
         self.c_card_border = "#262636"

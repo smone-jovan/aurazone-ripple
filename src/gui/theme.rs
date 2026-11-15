@@ -1,4 +1,4 @@
-//! Modern visual styling and dark cyberpunk palette for eframe/egui.
+//! Sleek minimalist visual styling and clean dark palette for eframe/egui.
 //!
 //! Crafted for ROG Strix aesthetics:
 //! Obsidian stealth background, slate card panels, high-contrast neon accents,
@@ -6,7 +6,7 @@
 
 use eframe::egui::{Color32, Context, Rounding, Stroke, Visuals};
 
-// Stealth Cyberpunk Palette Constants
+// Minimalist Dark Palette Constants
 pub const COLOR_BG_OBSIDIAN: Color32 = Color32::from_rgb(13, 14, 21); // #0D0E15 (Canvas)
 pub const COLOR_PANEL_CARD: Color32 = Color32::from_rgb(24, 26, 36); // #181A24 (Card Panels)
 pub const COLOR_BORDER_CARD: Color32 = Color32::from_rgb(42, 45, 61); // #2A2D3D (Subtle Borders)
@@ -18,8 +18,8 @@ pub const COLOR_CRIMSON_RED: Color32 = Color32::from_rgb(255, 51, 102); // #FF33
 pub const COLOR_TEXT_ICE: Color32 = Color32::from_rgb(240, 242, 250); // #F0F2FA (Crisp Ice White)
 pub const COLOR_TEXT_MUTED: Color32 = Color32::from_rgb(138, 142, 158); // #8A8E9E (Muted Description)
 
-/// Configures the egui Context with the stealth dark cyberpunk theme.
-pub fn apply_cyberpunk_theme(ctx: &Context) {
+/// Configures the egui Context with the sleek minimalist dark theme.
+pub fn apply_minimalist_theme(ctx: &Context) {
     let mut visuals = Visuals::dark();
 
     // Backgrounds

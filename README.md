@@ -1,7 +1,7 @@
 # ⚡ AuraZoneRipple
 
 > **Ultra-Low Memory 4-Zone Reactive Ripple RGB Lighting Extension for ASUS ROG Strix Laptops & G-Helper**  
-> *Written in pure native Rust with a modern dark cyberpunk GUI.*
+> *Written in pure native Rust with a sleek minimalist dark GUI.*
 
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?logo=rust)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-blue.svg?logo=windows)](https://microsoft.com)
@@ -24,8 +24,8 @@ Unlike heavy RGB suites (SignalRGB, Armoury Crate) that consume hundreds of mega
 
 - **🌊 4-Zone Keyboard + Front Wraparound Lightbar Waterfall**:
   - Keystrokes in any zone trigger smooth, cosine-eased wave ripples that propagate across the 4 keyboard zones and cascade downward onto the front underglow lightbar.
-- **🖥️ Modern Cyberpunk Native GUI (`egui/eframe`)**:
-  - Beautiful dark cyberpunk interface built with immediate-mode Rust GUI.
+- **🖥️ Sleek Minimalist Native GUI (`egui/eframe`)**:
+  - Clean, distraction-free minimalist dark interface built with immediate-mode Rust GUI.
   - Live interactive keyboard deck & front lightbar visualizer connected in real time to physical keystrokes.
   - Real-time sliders for wave speed, decay duration, idle brightness dimming, and cascade delay.
   - 6 One-Click Presets: *Cyberpunk, Volcano, Matrix, Synthwave, Rainbow Keystrokes, and Stealth*.
@@ -153,7 +153,7 @@ USAGE:
 
 OPTIONS:
     --daemon              Run as background service daemon (Named Pipe IPC server)
-    --gui                 Launch the modern cyberpunk Native GUI control center
+    --gui                 Launch the sleek minimalist Native GUI control center
     --toggle              Toggle ripple effect on/off (auto-spawns daemon if idle)
     --status              Query running daemon status and active preset
     --stop                Gracefully stop the background daemon and restore static lighting
@@ -174,7 +174,7 @@ aurazone-ripple/
 │   ├── hook/                # Win32 low-level keyboard hook & async key poller
 │   ├── physics/             # Two-phase wave easing, superposition, & lightbar cascade
 │   ├── ipc/                 # Windows Named Pipe server/client & single-instance mutex
-│   ├── gui/                 # Modern dark cyberpunk GUI (egui/eframe/glow)
+│   ├── gui/                 # Sleek minimalist GUI (egui/eframe/glow)
 │   ├── config.rs            # Preset management and atomic JSON configuration
 │   ├── daemon.rs            # High-performance 50 FPS daemon orchestrator
 │   ├── ghelper.rs           # G-Helper M5 binding installer & profile sync

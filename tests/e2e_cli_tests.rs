@@ -2,7 +2,7 @@
 //!
 //! Conforms to:
 //! - `ORIGINAL_REQUEST.md`: ASUS ROG Strix G513RC (VID_0B05&PID_19B6, Col05, Report ID 0x5D, Command 0xBC, 64B)
-//! - `PROJECT.md`: 10 Architectural Features, 12-to-8 Zone Mapping, Cyberpunk Theme, G-Helper M5 Trigger
+//! - `PROJECT.md`: 10 Architectural Features, 12-to-8 Zone Mapping, Minimalist Theme, G-Helper M5 Trigger
 //! - `TEST_INFRA.md`: 4-Tier Test Suite Specification (Tier 1 Feature Coverage, Tier 2 Boundaries,
 //!   Tier 3 Combinations, Tier 4 Real-World Scenarios)
 
