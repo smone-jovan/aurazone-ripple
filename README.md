@@ -1,12 +1,13 @@
 # ⚡ AuraZoneRipple
 
 > **Ultra-Low Memory 4-Zone Reactive Ripple RGB Lighting Extension for ASUS ROG Strix Laptops & G-Helper**  
-> *Written in pure native Rust with a sleek minimalist dark GUI.*
+> *Written in pure native Rust with a sleek minimalist dark GUI, silent system tray companion, and native G-Helper dropdown integration.*
 
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?logo=rust)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-blue.svg?logo=windows)](https://microsoft.com)
 [![Hardware](https://img.shields.io/badge/Hardware-ASUS%20ROG%20Strix%20G513-red.svg?logo=asus)](https://rog.asus.com)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-141%20passed-brightgreen.svg)](tests/)
 
 ---
 
@@ -16,7 +17,7 @@ Most ASUS ROG laptops equipped with **4-Zone RGB keyboards** (such as the **ROG 
 
 **AuraZoneRipple** brings **real-time reactive ripple typing** to ASUS ROG 4-Zone laptops through a software-driven high-frequency (50 FPS) USB HID direct pipeline.
 
-Unlike heavy RGB suites (SignalRGB, Armoury Crate) that consume hundreds of megabytes of RAM and multiple CPU cores, AuraZoneRipple is written in **native Rust**, consuming **less than 9 MB of RAM** and **under 0.2% CPU**.
+Unlike heavy RGB suites (SignalRGB, Armoury Crate) that consume hundreds of megabytes of RAM and multiple background services, AuraZoneRipple is written in **native Rust**, consuming **only ~11.7 MB of RAM** and **under 0.1% CPU**.
 
 ---
 
@@ -24,20 +25,28 @@ Unlike heavy RGB suites (SignalRGB, Armoury Crate) that consume hundreds of mega
 
 - **🌊 4-Zone Keyboard + Front Wraparound Lightbar Waterfall**:
   - Keystrokes in any zone trigger smooth, cosine-eased wave ripples that propagate across the 4 keyboard zones and cascade downward onto the front underglow lightbar.
-- **🖥️ Sleek Minimalist Native GUI (`egui/eframe`)**:
-  - Clean, distraction-free minimalist dark interface built with immediate-mode Rust GUI.
-  - Live interactive keyboard deck & front lightbar visualizer connected in real time to physical keystrokes.
-  - Real-time sliders for wave speed, decay duration, idle brightness dimming, and cascade delay.
-  - 6 One-Click Presets: *Cyberpunk, Volcano, Matrix, Synthwave, Rainbow Keystrokes, and Stealth*.
-- **🎮 Seamless G-Helper Integration**:
-  - Syncs directly with G-Helper active profile colors, modes, and brightness settings without modifying or overriding your physical laptop macro keys.
-  - Can be run as a standalone application, through desktop shortcuts, or as a background service.
+  - Reverse-engineered motherboard trace inversion fix ensures natural left-to-right propagation matching key positions.
+- **🖥️ Sleek Minimalist Native GUI (`egui/eframe/glow`)**:
+  - Clean, distraction-free minimalist dark interface with procedural keyboard and front lightbar deck visualizer.
+  - Interactive parameter controls for wave speed, decay duration, idle base glow, and waterfall cascade timing.
+  - 6 Built-in Presets: *Cyberpunk, Volcano, Matrix, Synthwave, Rainbow Keystrokes, and Stealth*.
+  - **Custom User Profiles 1 & 2**: Save, customize, and switch between your own tailored profiles with one click.
+- **🎮 Seamless G-Helper Native Dropdown Integration**:
+  - **Surgical In-Place Patcher (`--patch-ghelper`)**: Unhides the official "Ripple" mode directly inside G-Helper's keyboard mode dropdown with zero clutter and zero risk of bundle corruption.
+  - **Lifecycle Auto-Watcher**: Monitors G-Helper profile changes. When "Ripple" is selected, daemon automatically wakes up and re-primes the microcontroller into Direct Mode (`0xBC`).
+  - **Zero-Packet Sleep**: When switching back to Static, Breathing, or Color Cycle in G-Helper, daemon instantly applies G-Helper's static color and sleeps without sending any USB frames, preventing any bus contention.
+- **🔕 Silent System Tray Companion**:
+  - Pinned native tray icon sitting quietly beside G-Helper in the Windows taskbar.
+  - Quick right-click menu: Open GUI, Activate Profile 1, Activate Profile 2, Pause/Resume, and Clean Exit.
+  - Single-instance window focus protection prevents duplicate GUI instances.
+- **🚀 Windows Auto-Startup Support**:
+  - Automatically launches into background standby on user logon (`HKCU\...\Run`), running quietly at ~11.7 MB RAM.
 - **⚡ Ultra-Low Resource Footprint**:
-  - **~8.6 MB Working Set RAM** in background daemon mode.
-  - **< 0.2% CPU utilization** using Windows asynchronous key state polling and low-level Win32 hooks.
+  - **~11.7 MB Working Set RAM** in background daemon mode (only 2.3 MB private memory).
+  - **< 0.1% CPU utilization** using low-level Win32 hooks and asynchronous key polling.
   - Standalone release executable (~4.2 MB) with zero non-system DLL dependencies.
 - **🔒 Single-Instance Win32 Mutex & Named Pipe IPC**:
-  - Built-in IPC server (`\\.\pipe\AuraZoneRipple_IPC`) handling `--daemon`, `--toggle`, `--status`, `--stop`, and `--gui` commands without race conditions.
+  - Built-in duplex IPC server (`\\.\pipe\AuraZoneRipple_IPC`) handling `--daemon`, `--toggle`, `--status`, `--stop`, `--profile`, and `--gui` commands without race conditions.
 - **🐍 Included Reference Python Prototype**:
   - Comes with the complete zero-dependency Python prototype and standalone Tkinter control panel inside `python_prototype/`.
 
@@ -108,15 +117,17 @@ pub const ZONE_MAP: [usize; 12] = [0, 1, 2, 3, 0, 0, 7, 7, 6, 5, 4, 4];
 | `Slot 10` | Motherboard Bus Left-Mid | `Zone 4` (Left) | Front Left-Center Underglow |
 | `Slot 11` | Motherboard Bus Left-Far | `Zone 4` (Left) | Front Left Edge Underglow |
 
-With this calibration, ripples travel in true 1:1 physical alignment across both the keyboard keys and the desk underglow.
-
 ---
 
 ## 🚀 Quick Start & Installation
 
 ### Option 1: Pre-Built Release Binary
 1. Download or locate `aurazone_ripple.exe` in `target/release/`.
-2. Double-click to run live in console, or launch the GUI:
+2. To unlock the official "Ripple" mode in G-Helper:
+   ```cmd
+   aurazone_ripple.exe --patch-ghelper
+   ```
+3. Run the background daemon or launch the GUI:
    ```cmd
    aurazone_ripple.exe --gui
    ```
@@ -129,7 +140,7 @@ Ensure you have the Rust toolchain installed ([rustup.rs](https://rustup.rs)):
 git clone https://github.com/smone-jovan/aurazone-ripple.git
 cd aurazone-ripple
 
-# Run test suite (133 tests)
+# Run full automated test suite (141 tests)
 cargo test
 
 # Compile optimized release binary
@@ -146,21 +157,25 @@ target/release/aurazone_ripple.exe
 ## ⌨️ CLI Usage
 
 ```text
-AuraZoneRipple_Rust v0.1.0 — ASUS ROG Strix G513RC Aura Direct Lighting
+ASUS ROG Strix G513RC Aura Zone Ripple Lighting
 
-USAGE:
-    aurazone_ripple.exe [OPTIONS]
+Usage: aurazone_ripple.exe [OPTIONS]
 
-OPTIONS:
-    --daemon              Run as background service daemon (Named Pipe IPC server)
-    --gui                 Launch the sleek minimalist Native GUI control center
-    --toggle              Toggle ripple effect on/off (auto-spawns daemon if idle)
-    --status              Query running daemon status and active preset
-    --stop                Gracefully stop the background daemon and restore static lighting
-    --restore             Restore default static RGB lighting profile from G-Helper
-    --install-ghelper     Automatically configure G-Helper M5 action key to trigger --toggle
-    --mock                Run in mock/emulation mode (no physical hardware required)
-    -h, --help            Print help information
+Options:
+  -d, --daemon                       Run as background daemon process (Named Pipe IPC + Tray)
+  -m, --mock                         Run in mock mode (no physical hardware required)
+  -t, --toggle                       Toggle ripple effect state (active / paused)
+      --stop                         Stop the background daemon
+  -s, --status                       Query background daemon status
+  -r, --restore                      Restore default static lighting profile
+      --install-ghelper              Install G-Helper M5 custom key action binding
+  -g, --gui                          Launch sleek minimalist GUI control center
+  -p, --profile <PROFILE>            Switch to user profile slot (1 or 2)
+      --patch-ghelper                Patch G-Helper to unhide official "Ripple" mode in UI dropdown
+      --unpatch-ghelper              Unpatch G-Helper and restore original binary
+      --ghelper-path <GHELPER_PATH>  Custom path to GHelper.exe (optional override)
+  -h, --help                         Print help
+  -V, --version                      Print version
 ```
 
 ---
@@ -174,12 +189,15 @@ aurazone-ripple/
 │   ├── hook/                # Win32 low-level keyboard hook & async key poller
 │   ├── physics/             # Two-phase wave easing, superposition, & lightbar cascade
 │   ├── ipc/                 # Windows Named Pipe server/client & single-instance mutex
-│   ├── gui/                 # Sleek minimalist GUI (egui/eframe/glow)
-│   ├── config.rs            # Preset management and atomic JSON configuration
-│   ├── daemon.rs            # High-performance 50 FPS daemon orchestrator
-│   ├── ghelper.rs           # G-Helper M5 binding installer & profile sync
+│   ├── gui/                 # Sleek minimalist GUI (egui/eframe/glow) & custom profile widgets
+│   ├── patcher.rs           # G-Helper in-place surgical branch patcher & unpatcher
+│   ├── tray.rs              # Native Windows system tray icon & context menu
+│   ├── config.rs            # ProfileData, Presets, and atomic JSON configuration
+│   ├── daemon.rs            # High-performance 50 FPS daemon orchestrator & G-Helper watcher
+│   ├── ghelper.rs           # G-Helper M5 binding installer & static profile restoration
+│   ├── lib.rs               # Crate library root & public exports
 │   └── main.rs              # CLI entry point router
-├── tests/                   # Automated 4-tier verification test suite (133 tests)
+├── tests/                   # Automated 4-tier verification test suite (141 tests)
 ├── python_prototype/        # Zero-dependency reference Python prototype & control panel
 ├── Cargo.toml               # Cargo package configuration
 └── README.md                # Project documentation
