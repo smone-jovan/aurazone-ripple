@@ -119,10 +119,8 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         Box::new(MockAuraDevice::new())
     } else {
         match Win32AuraDevice::open() {
-            Ok(mut dev) => {
-                println!("[OK] Kontroler Aura Direct aktif pada hardware (Col05).");
-                let _ = dev.set_static_uniform([0, 240, 255]);
-                std::thread::sleep(Duration::from_millis(150));
+            Ok(dev) => {
+                println!("[OK] Kontroler Aura Direct siap pada hardware (Col05).");
                 Box::new(dev)
             }
             Err(e) => {
@@ -153,8 +151,25 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     let rx = listener.receiver();
 
     // 5. Shared daemon state
+    let ghelper_cfg_path = crate::ghelper::get_ghelper_config_path();
+    let initial_ghelper_mode = if ghelper_cfg_path.exists() {
+        std::fs::read_to_string(&ghelper_cfg_path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+            .and_then(|j| j.get("aura_mode").and_then(|v| v.as_i64()))
+    } else {
+        None
+    };
+
+    // If G-Helper is active and not on mode 8 (Ripple), start PAUSED to not interfere with G-Helper
+    let start_active = match initial_ghelper_mode {
+        Some(8) => true,
+        Some(_) => false,
+        None => true,
+    };
+
     let running = Arc::new(AtomicBool::new(true));
-    let active = Arc::new(AtomicBool::new(true));
+    let active = Arc::new(AtomicBool::new(start_active));
     let ui_preview: Arc<[AtomicU32; 8]> = Arc::new(std::array::from_fn(|_| AtomicU32::new(0)));
 
     // 6. Start Named Pipe IPC Server
@@ -222,15 +237,32 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     while running.load(Ordering::Relaxed) && GLOBAL_RUNNING.load(Ordering::Relaxed) {
         let frame_start = Instant::now();
         let is_active = active.load(Ordering::Relaxed);
+        let cfg = shared_config.read().clone();
 
-        if is_active && (!was_active || need_reprime.swap(false, Ordering::SeqCst)) {
+        // If daemon is paused (e.g. G-Helper is in Static, Breathe, Color Cycle mode):
+        // NEVER send frames to hardware! Let G-Helper control lighting without conflict.
+        if !is_active {
+            if was_active {
+                was_active = false;
+                // Transitioned from Active to Paused: immediately apply G-Helper's static color!
+                let _ = crate::ghelper::restore_static_lighting(mock);
+            }
+            for (z, c) in [cfg.color_base; 8].iter().enumerate() {
+                let u32_val = ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | (c[2] as u32);
+                ui_preview[z].store(u32_val, Ordering::Relaxed);
+            }
+            thread::sleep(Duration::from_millis(100));
+            continue;
+        }
+
+        if !was_active || need_reprime.swap(false, Ordering::SeqCst) {
             // Re-prime microcontroller into Direct Mode 0xBC so it accepts 50 FPS software frames
             let handshake = crate::hid::encode_handshake();
             let _ = device.send_feature(&handshake);
             thread::sleep(Duration::from_millis(30));
         }
-        was_active = is_active;
-        let cfg = shared_config.read().clone();
+        was_active = true;
+
         let spread = Duration::from_millis(DEFAULT_SPREAD_MS);
         let speed_factor = if cfg.speed > 0.05 { cfg.speed } else { 1.0 };
         let duration =
@@ -238,25 +270,21 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
 
         // 7a. Drain incoming keystroke events from channel
         while let Ok(event) = rx.try_recv() {
-            if is_active {
-                let zone_names = ["Zona 0 (Kiri/WASD)", "Zona 1 (Tengah-Kiri)", "Zona 2 (Tengah-Kanan)", "Zona 3 (Kanan/Numpad)"];
-                let z_name = zone_names.get(event.zone).unwrap_or(&"Unknown");
-                println!(" -> [KETIK] Terdeteksi di {}! Gelombang merambat...", z_name);
-                let color = if cfg.rainbow {
-                    advance_rainbow(&mut current_hue)
-                } else {
-                    cfg.color_ripple
-                };
-                engine.add_ripple_with_duration(event.zone, color, duration);
-            }
+            let zone_names = ["Zona 0 (Kiri/WASD)", "Zona 1 (Tengah-Kiri)", "Zona 2 (Tengah-Kanan)", "Zona 3 (Kanan/Numpad)"];
+            let z_name = zone_names.get(event.zone).unwrap_or(&"Unknown");
+            println!(" -> [KETIK] Terdeteksi di {}! Gelombang merambat...", z_name);
+            let color = if cfg.rainbow {
+                advance_rainbow(&mut current_hue)
+            } else {
+                cfg.color_ripple
+            };
+            engine.add_ripple_with_duration(event.zone, color, duration);
         }
 
         // 7b. Prune expired waves and compute frame colors
-        let zone_colors = if is_active {
+        let zone_colors = {
             engine.prune_expired(frame_start, spread, cascade);
             engine.render_at_time(frame_start, cfg.color_base, spread, cascade)
-        } else {
-            [cfg.color_base; 8]
         };
 
         // 7c. Update lockless UI preview buffer (0x00RRGGBB)

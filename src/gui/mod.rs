@@ -430,6 +430,16 @@ impl eframe::App for AuraGuiApp {
 
 /// Launches the native GUI application window.
 pub fn run_gui() -> Result<(), eframe::Error> {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::StationsAndDesktops::{OpenDesktopW, SetThreadDesktop};
+        let default_name: Vec<u16> = "Default\0".encode_utf16().collect();
+        let hdesk = OpenDesktopW(default_name.as_ptr(), 0, 0, 0x1FF);
+        if hdesk != 0 as _ {
+            SetThreadDesktop(hdesk);
+        }
+    }
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([580.0, 750.0])

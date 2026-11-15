@@ -15,7 +15,7 @@ use std::sync::Arc;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 #[cfg(windows)]
 use windows_sys::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
+    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
     NOTIFYICONDATAW,
 };
 #[cfg(windows)]
@@ -130,29 +130,11 @@ impl TrayIconManager {
         }
 
         // Retry loop in case Explorer taskbar is busy initializing
-        let mut added = false;
         for _ in 0..10 {
             if Shell_NotifyIconW(NIM_ADD, &nid) != 0 {
-                added = true;
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(250));
-        }
-
-        if added {
-            // Display friendly welcome toast
-            let mut info_nid = nid;
-            info_nid.uFlags = NIF_INFO;
-            let info_title = "⚡ AuraZone Ripple Aktif\0";
-            for (i, c) in info_title.encode_utf16().take(63).enumerate() {
-                info_nid.szInfoTitle[i] = c;
-            }
-
-            let info_msg = "Pengaturan & profil custom dapat diakses lewat Icon Tray ini!\0";
-            for (i, c) in info_msg.encode_utf16().take(255).enumerate() {
-                info_nid.szInfo[i] = c;
-            }
-            Shell_NotifyIconW(windows_sys::Win32::UI::Shell::NIM_MODIFY, &info_nid);
         }
 
         // Win32 Message Loop with non-blocking peek so thread exits cleanly when daemon stops
@@ -259,16 +241,6 @@ fn spawn_gui_process() {
     if let Ok(exe) = std::env::current_exe() {
         let mut cmd = std::process::Command::new(exe);
         cmd.arg("--gui");
-        cmd.stdin(std::process::Stdio::null());
-        cmd.stdout(std::process::Stdio::null());
-        cmd.stderr(std::process::Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            const DETACHED_PROCESS: u32 = 0x00000008;
-            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
-        }
         let _ = cmd.spawn();
     }
 }
