@@ -140,12 +140,14 @@ fn test_t1_f2_zone_map_slots_4_and_5_mirror_zone_0() {
 
 #[test]
 fn test_t1_f2_zone_map_lightbar_front_zones() {
-    assert_eq!(ZONE_MAP[6], 4, "Slot 6 must map to Lightbar Left Wrap (Zone 4)");
-    assert_eq!(ZONE_MAP[7], 4, "Slot 7 must mirror Lightbar Left Wrap (Zone 4)");
-    assert_eq!(ZONE_MAP[8], 5, "Slot 8 must map to Lightbar Mid-Left (Zone 5)");
-    assert_eq!(ZONE_MAP[9], 6, "Slot 9 must map to Lightbar Mid-Right (Zone 6)");
-    assert_eq!(ZONE_MAP[10], 7, "Slot 10 must map to Lightbar Right Wrap (Zone 7)");
-    assert_eq!(ZONE_MAP[11], 7, "Slot 11 must mirror Lightbar Right Wrap (Zone 7)");
+    // ROG Strix G513 motherboard bus traces for slots 6-11 run Right-to-Left.
+    // Inverse mapping [7, 7, 6, 5, 4, 4] ensures physical Left-to-Right wave propagation.
+    assert_eq!(ZONE_MAP[6], 7, "Slot 6 (HW bus Right) must map to Lightbar Right Wrap (Zone 7)");
+    assert_eq!(ZONE_MAP[7], 7, "Slot 7 (HW bus Right-Mid) must mirror Lightbar Right Wrap (Zone 7)");
+    assert_eq!(ZONE_MAP[8], 6, "Slot 8 (HW bus Center-R) must map to Lightbar Mid-Right (Zone 6)");
+    assert_eq!(ZONE_MAP[9], 5, "Slot 9 (HW bus Center-L) must map to Lightbar Mid-Left (Zone 5)");
+    assert_eq!(ZONE_MAP[10], 4, "Slot 10 (HW bus Left-Mid) must map to Lightbar Left Wrap (Zone 4)");
+    assert_eq!(ZONE_MAP[11], 4, "Slot 11 (HW bus Left) must mirror Lightbar Left Wrap (Zone 4)");
 }
 
 #[test]

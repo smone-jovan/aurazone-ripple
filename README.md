@@ -61,6 +61,57 @@ Reverse engineered from ASUS N-Key HID controller communications (`GHelper.USB.A
 
 ---
 
+## 💡 Front Wraparound Lightbar Architecture & Hardware Inversion Fix
+
+The ASUS ROG Strix G513 series features a distinctive wraparound LED lightbar lining the front and sides of the laptop chassis. AuraZoneRipple synchronizes this underglow with keyboard typing using a two-stage **Waterfall Cascade Effect**:
+
+### 1. Spatial Topology & Waterfall Flow
+When a key is struck, the wave expands horizontally across the 4 keyboard zones and cascades vertically down to the corresponding lightbar segments after a tuned micro-delay (`lightbar_cascade_delay` ~35ms):
+
+```text
+       [Zone 0]        [Zone 1]        [Zone 2]        [Zone 3]
+       Left/WASD     Center-Left     Center-Right    Right/NumPad
+           │               │               │               │
+      ─────┴───────────────┴───────────────┴───────────────┴─────  (Keyboard Deck)
+           │               │               │               │
+           ▼ (Cascade)     ▼ (Cascade)     ▼ (Cascade)     ▼ (Cascade)
+      ───────────────────────────────────────────────────────────  (Front Edge)
+       [Zone 4]        [Zone 5]        [Zone 6]        [Zone 7]
+      Left Underglow  Center-L Under  Center-R Under  Right Underglow
+```
+
+### 2. The Motherboard Bus Inversion Gotcha (Reverse Engineering Discovery)
+In the 64-byte Direct Mode payload (`Report 0x5D`), 12 RGB slots (36 bytes) are transmitted to the embedded controller (EC).
+- Slots `0..=3`: Keyboard Zones 0 to 3
+- Slots `4..=5`: Padding / Mirror
+- Slots `6..=11`: Front Lightbar LEDs
+
+**The Hardware Inversion Problem:**  
+On the ASUS ROG Strix G513 motherboard, physical traces for slots 6 through 11 are routed ascending from **Right to Left** (`Slot 6` is the far-right LED cluster, while `Slot 11` is the far-left LED cluster).
+
+A naive left-to-right mapping `[..., 4, 4, 5, 6, 7, 7]` causes inverted propagation: pressing a key on the left side (WASD) produces light ripples emerging from the right side of the desk!
+
+**The Calibrated Hardware Solution:**  
+AuraZoneRipple applies an inverse slot mapping in `src/hid/protocol.rs` to compensate for physical motherboard trace routing:
+```rust
+pub const ZONE_MAP: [usize; 12] = [0, 1, 2, 3, 0, 0, 7, 7, 6, 5, 4, 4];
+```
+
+| Slot Index | Physical Bus Location | Logical Zone Assigned | Desk Underglow Position |
+|---|---|---|---|
+| `Slot 0..3` | Keyboard Zones 0..3 | `Zone 0..3` | Keyboard Deck Left $\rightarrow$ Right |
+| `Slot 4..5` | Reserved / Padding | `Zone 0` | Internal EC Pad |
+| `Slot 6` | Motherboard Bus Right-Far | `Zone 7` (Right) | Front Right Edge Underglow |
+| `Slot 7` | Motherboard Bus Right-Mid | `Zone 7` (Right) | Front Right-Center Underglow |
+| `Slot 8` | Motherboard Bus Center-R | `Zone 6` (Mid-Right) | Front Center-Right Underglow |
+| `Slot 9` | Motherboard Bus Center-L | `Zone 5` (Mid-Left) | Front Center-Left Underglow |
+| `Slot 10` | Motherboard Bus Left-Mid | `Zone 4` (Left) | Front Left-Center Underglow |
+| `Slot 11` | Motherboard Bus Left-Far | `Zone 4` (Left) | Front Left Edge Underglow |
+
+With this calibration, ripples travel in true 1:1 physical alignment across both the keyboard keys and the desk underglow.
+
+---
+
 ## 🚀 Quick Start & Installation
 
 ### Option 1: Pre-Built Release Binary

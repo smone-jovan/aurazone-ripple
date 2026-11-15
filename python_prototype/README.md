@@ -9,13 +9,25 @@ Ekstensi efek pencahayaan RGB reaktif (*Reactive Ripple Wave*) untuk laptop **AS
 Sebelumnya, skrip awal tidak menyalakan lampu keyboard karena:
 1. **Endpoint HID yang Keliru**: Skrip awal mencoba mengirim ke `Col04` (Usage `0x0076`), yang menolak Feature Report `0x5D` dengan Win32 Error 1 (`ERROR_INVALID_FUNCTION`). Melalui disasembli CIL `GHelper.USB.Aura::ApplyDirect`, ditemukan endpoint yang benar adalah **`Col05`** (`UsagePage: 0xFF31, Usage: 0x0079, FeatureReportByteLength: 64`).
 2. **Buffer Padding 64-byte**: Windows subsystem HID menolak paket handshake pendek 3-byte dengan Win32 Error 87 (`ERROR_INVALID_PARAMETER`). Semua Feature Report wajib diisi tepat 64 bytes (`[0x5D, 0xBC, 0x01] + [0x00] * 61`).
-3. **Pemetaan Zona 4-Zone G-Helper**: Paket direct mode 4-zone mengirim 12 slot RGB (36 byte) yang dipetakan oleh firmware EC laptop:
+3. **Pemetaan Zona & Koreksi Inversi Jalur Hardware Lightbar**:
+   Paket direct mode 4-zone mengirim 12 slot RGB (36 byte) yang dialokasikan oleh firmware EC laptop:
    ```python
-   ZONE_MAP = [0, 1, 2, 3, 0, 0, 4, 4, 5, 6, 7, 7]
+   # Pemetaan terkalibrasi perangkat keras (Hardware Calibrated Mapping)
+   ZONE_MAP = [0, 1, 2, 3, 0, 0, 7, 7, 6, 5, 4, 4]
    ```
    Di mana:
-   - Zona `0, 1, 2, 3`: Zona keyboard dari kiri ke kanan (Kiri/WASD, Tengah-Kiri, Tengah-Kanan, Kanan/Numpad).
-   - Zona `4, 5, 6, 7`: Bilah lampu depan (*Front Wraparound Lightbar*).
+   - **Keyboard (Zona 0 – 3)**:
+     - Zona `0`: Kiri / WASD
+     - Zona `1`: Tengah-Kiri
+     - Zona `2`: Tengah-Kanan
+     - Zona `3`: Kanan / NumPad & Panah
+   - **Bilah Lampu Depan / Front Wraparound Lightbar (Zona 4 – 7)**:
+     - Zona `4`: Lightbar Kiri
+     - Zona `5`: Lightbar Tengah-Kiri
+     - Zona `6`: Lightbar Tengah-Kanan
+     - Zona `7`: Lightbar Kanan
+   - **Temuan Kritis Inversi Hardware Bus**:
+     Pada motherboard ASUS ROG Strix G513, jalur trace bus hardware untuk slot 6–11 di-wiring dari **Kanan ke Kiri** (Right $\rightarrow$ Left). Jika menggunakan pemetaan naif `[..., 4, 4, 5, 6, 7, 7]`, arah gelombang di bilah lampu depan akan terbalik (mengetik di kiri memicu cahaya di kanan). Dengan pemetaan terbalik `[7, 7, 6, 5, 4, 4]` pada slot 6–11, gelombang cahaya di lightbar depan 100% selaras dan searah secara fisik dengan ketukan di keyboard.
 4. **Hardware Ripple vs Software Ripple**: Mode bawaan EC firmware `AuraMode.Ripple` (mode 8) hanya didukung oleh laptop dengan keyboard *Per-Key RGB*. Pada model 4-Zone (seperti G513RC), G-Helper tidak mengaktifkan efek riak perangkat keras; efek riak reaktif perangkat lunak via Aura Direct adalah solusi yang tepat dan bekerja mulus.
 
 ---
