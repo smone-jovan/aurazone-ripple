@@ -106,7 +106,7 @@ impl AuraGuiApp {
 
     /// Switches the active preset and synchronizes configuration.
     pub fn apply_preset(&mut self, preset: Preset) {
-        self.config = RippleConfig::from_preset(preset);
+        self.config.switch_preset(preset);
 
         self.wave_speed_ms = if self.config.speed > 0.05 {
             (65.0 / self.config.speed).round() as u32
@@ -127,6 +127,15 @@ impl AuraGuiApp {
         self.is_dirty = true;
         self.save_and_apply();
         self.trigger_preview_ripple(0);
+    }
+
+    /// Saves the current effect parameters to the chosen user profile slot (1 or 2).
+    pub fn save_to_profile(&mut self, slot: u8) {
+        self.config.save_current_to_profile(slot);
+        self.is_dirty = true;
+        self.save_and_apply();
+        self.status_message = format!("Parameters saved into Profil {}!", slot);
+        self.status_timestamp = Instant::now();
     }
 
     /// Persists configuration to disk and notifies daemon over Named Pipe.
@@ -311,12 +320,28 @@ impl eframe::App for AuraGuiApp {
                     ..Default::default()
                 }
                 .show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new("PRESET PROFILES")
-                            .color(COLOR_NEON_CYAN)
-                            .size(13.0)
-                            .strong(),
-                    );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("PRESET PROFILES")
+                                .color(COLOR_NEON_CYAN)
+                                .size(13.0)
+                                .strong(),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button(egui::RichText::new("💾 Simpan ke Profil 2").color(COLOR_VOLCANO_ORANGE).size(11.0))
+                                .clicked()
+                            {
+                                self.save_to_profile(2);
+                            }
+                            if ui
+                                .button(egui::RichText::new("💾 Simpan ke Profil 1").color(COLOR_NEON_CYAN).size(11.0))
+                                .clicked()
+                            {
+                                self.save_to_profile(1);
+                            }
+                        });
+                    });
                     ui.add_space(6.0);
 
                     if let Some(preset) = render_preset_switcher(ui, self.config.preset) {

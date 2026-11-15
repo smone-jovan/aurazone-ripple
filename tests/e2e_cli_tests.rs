@@ -648,6 +648,70 @@ fn test_t1_f10_preset_stealth() {
     assert_eq!(config.color_ripple, [255, 255, 255], "Stealth ripple must be crisp white");
 }
 
+#[test]
+fn test_t1_f10_preset_profile1_and_profile2() {
+    let mut config = RippleConfig::default();
+    assert_eq!(config.profile_1.name, "Profil 1");
+    assert_eq!(config.profile_2.name, "Profil 2");
+
+    // Switching to Profile 1
+    config.apply_profile(1);
+    assert_eq!(config.preset, Preset::Profile1);
+    assert_eq!(config.speed, config.profile_1.speed);
+    assert_eq!(config.color_ripple, config.profile_1.color_ripple);
+
+    // Switching to Profile 2
+    config.apply_profile(2);
+    assert_eq!(config.preset, Preset::Profile2);
+    assert_eq!(config.speed, config.profile_2.speed);
+    assert_eq!(config.color_base, config.profile_2.color_base);
+}
+
+#[test]
+fn test_t1_f10_profile_save_and_apply() {
+    let mut config = RippleConfig::default();
+    config.speed = 1.45;
+    config.decay = 0.72;
+    config.color_base = [12, 34, 56];
+    config.color_ripple = [200, 100, 50];
+
+    // Save current parameters to Profile 1
+    config.save_current_to_profile(1);
+    assert_eq!(config.profile_1.speed, 1.45);
+    assert_eq!(config.profile_1.decay, 0.72);
+    assert_eq!(config.profile_1.color_base, [12, 34, 56]);
+    assert_eq!(config.profile_1.color_ripple, [200, 100, 50]);
+
+    // Change to another preset then re-apply Profile 1
+    config.switch_preset(Preset::Cyberpunk);
+    assert_eq!(config.preset, Preset::Cyberpunk);
+    assert_eq!(config.speed, 1.0);
+    config.apply_profile(1);
+    assert_eq!(config.preset, Preset::Profile1);
+    assert_eq!(config.speed, 1.45);
+    assert_eq!(config.color_base, [12, 34, 56]);
+}
+
+#[test]
+fn test_t1_f10_profile_backward_compatibility_old_json() {
+    // Old JSON format without profile_1 or profile_2 fields
+    let old_json = r#"{
+      "preset": "Matrix",
+      "speed": 1.2,
+      "decay": 0.8,
+      "attack": 0.15,
+      "lightbar_delay_ms": 35,
+      "rainbow": false,
+      "color_base": [0, 20, 0],
+      "color_ripple": [0, 255, 65]
+    }"#;
+
+    let config: RippleConfig = serde_json::from_str(old_json).expect("Old JSON must deserialize cleanly");
+    assert_eq!(config.preset, Preset::Matrix);
+    assert_eq!(config.profile_1.name, "Profil 1");
+    assert_eq!(config.profile_2.name, "Profil 2");
+}
+
 // ============================================================================
 // TIER 2: BOUNDARY & CORNER CASES
 // ============================================================================

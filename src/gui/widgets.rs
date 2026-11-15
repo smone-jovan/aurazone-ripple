@@ -187,6 +187,8 @@ pub fn render_preset_switcher(ui: &mut Ui, current_preset: Preset) -> Option<Pre
         (Preset::Volcano, "Volcano", COLOR_VOLCANO_ORANGE),
         (Preset::Synthwave, "Synthwave", COLOR_CYBER_MAGENTA),
         (Preset::Rainbow, "Rainbow", COLOR_NEON_CYAN),
+        (Preset::Profile1, "★ Profil 1", COLOR_NEON_CYAN),
+        (Preset::Profile2, "★ Profil 2", COLOR_VOLCANO_ORANGE),
     ];
 
     ui.horizontal_wrapped(|ui| {

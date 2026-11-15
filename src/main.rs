@@ -41,6 +41,10 @@ pub struct CliArgs {
     /// Launch sleek minimalist GUI
     #[arg(short, long)]
     pub gui: bool,
+
+    /// Switch to user profile slot (1 or 2)
+    #[arg(short, long, value_parser = clap::value_parser!(u8))]
+    pub profile: Option<u8>,
 }
 
 fn spawn_daemon_background(mock: bool) {
@@ -117,6 +121,23 @@ fn main() {
                 std::process::exit(1);
             }
         }
+    } else if let Some(slot) = args.profile {
+        if slot != 1 && slot != 2 {
+            eprintln!("Error: Profile slot must be 1 or 2.");
+            std::process::exit(1);
+        }
+        let settings_path = std::env::var("AURAZONE_SETTINGS_PATH")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from("ripple_settings.json"));
+
+        let (mut config, _) = aura_zone_ripple::config::RippleConfig::load_or_recover(&settings_path);
+        config.apply_profile(slot);
+        if let Err(e) = config.save_to_path(&settings_path) {
+            eprintln!("Error saving config: {}", e);
+            std::process::exit(1);
+        }
+        println!("Switched to Profil {}.", slot);
+        let _ = aura_zone_ripple::ipc::send_ipc_command("RELOAD");
     } else if args.install_ghelper {
         match aura_zone_ripple::ghelper::install_ghelper_binding() {
             Ok(action) => {
