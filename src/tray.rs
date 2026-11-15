@@ -21,7 +21,7 @@ use windows_sys::Win32::UI::Shell::{
 #[cfg(windows)]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, PostQuitMessage, RegisterClassW,
+    DispatchMessageW, GetCursorPos, LoadIconW, PostQuitMessage, RegisterClassW,
     SetForegroundWindow, TrackPopupMenu, TranslateMessage, HMENU, IDI_APPLICATION,
     MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_RIGHTBUTTON, WM_APP,
     WM_COMMAND, WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSW,
@@ -64,8 +64,20 @@ impl TrayIconManager {
 
     #[cfg(windows)]
     unsafe fn run_tray_loop(&self) {
+        use windows_sys::Win32::System::StationsAndDesktops::{OpenDesktopW, SetThreadDesktop};
+
+        // Attach to the user's interactive 'Default' desktop so the tray icon and window messages bind to Explorer
+        let default_name: Vec<u16> = "Default\0".encode_utf16().collect();
+        let hdesk = OpenDesktopW(default_name.as_ptr(), 0, 0, 0x1FF);
+        if hdesk != 0 as _ {
+            let res = SetThreadDesktop(hdesk);
+            println!("[Tray] OpenDesktopW: {:?}, SetThreadDesktop: {}", hdesk, res);
+        } else {
+            println!("[Tray] OpenDesktopW failed: {}", windows_sys::Win32::Foundation::GetLastError());
+        }
+
         let class_name: Vec<u16> = "AuraZone_TrayClass\0".encode_utf16().collect();
-        let h_instance = 0 as _;
+        let h_instance = windows_sys::Win32::System::LibraryLoader::GetModuleHandleW(std::ptr::null());
 
         let wnd_class = WNDCLASSW {
             style: 0,
@@ -80,7 +92,7 @@ impl TrayIconManager {
             lpszClassName: class_name.as_ptr(),
         };
 
-        RegisterClassW(&wnd_class);
+        let atom = RegisterClassW(&wnd_class);
 
         let hwnd = CreateWindowExW(
             0,
@@ -97,6 +109,8 @@ impl TrayIconManager {
             std::ptr::null(),
         );
 
+        println!("[Tray] RegisterClass atom: {}, hwnd: {:?}, LastError: {}", atom, hwnd, windows_sys::Win32::Foundation::GetLastError());
+
         if hwnd == 0 as _ {
             return;
         }
@@ -106,7 +120,7 @@ impl TrayIconManager {
         nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
         nid.hWnd = hwnd;
         nid.uID = 1;
-        nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_INFO;
+        nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         nid.uCallbackMessage = WM_TRAYICON;
         nid.hIcon = LoadIconW(0 as _, IDI_APPLICATION);
 
@@ -115,23 +129,41 @@ impl TrayIconManager {
             nid.szTip[i] = c;
         }
 
-        let info_title = "⚡ AuraZone Ripple Aktif\0";
-        for (i, c) in info_title.encode_utf16().take(63).enumerate() {
-            nid.szInfoTitle[i] = c;
+        // Retry loop in case Explorer taskbar is busy initializing
+        let mut added = false;
+        for _ in 0..10 {
+            if Shell_NotifyIconW(NIM_ADD, &nid) != 0 {
+                added = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
         }
 
-        let info_msg = "Pengaturan & profil custom dapat diakses kapan saja lewat icon tray ini!\0";
-        for (i, c) in info_msg.encode_utf16().take(255).enumerate() {
-            nid.szInfo[i] = c;
+        if added {
+            // Display friendly welcome toast
+            let mut info_nid = nid;
+            info_nid.uFlags = NIF_INFO;
+            let info_title = "⚡ AuraZone Ripple Aktif\0";
+            for (i, c) in info_title.encode_utf16().take(63).enumerate() {
+                info_nid.szInfoTitle[i] = c;
+            }
+
+            let info_msg = "Pengaturan & profil custom dapat diakses lewat Icon Tray ini!\0";
+            for (i, c) in info_msg.encode_utf16().take(255).enumerate() {
+                info_nid.szInfo[i] = c;
+            }
+            Shell_NotifyIconW(windows_sys::Win32::UI::Shell::NIM_MODIFY, &info_nid);
         }
 
-        Shell_NotifyIconW(NIM_ADD, &nid);
-
-        // Standard Win32 Message Loop
+        // Win32 Message Loop with non-blocking peek so thread exits cleanly when daemon stops
         let mut msg: MSG = std::mem::zeroed();
-        while self.running.load(Ordering::SeqCst) && GetMessageW(&mut msg, 0 as _, 0, 0) > 0 {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+        while self.running.load(Ordering::Relaxed) {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{PeekMessageW, PM_REMOVE};
+            while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE) > 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
 
         Shell_NotifyIconW(NIM_DELETE, &nid);
@@ -227,6 +259,9 @@ fn spawn_gui_process() {
     if let Ok(exe) = std::env::current_exe() {
         let mut cmd = std::process::Command::new(exe);
         cmd.arg("--gui");
+        cmd.stdin(std::process::Stdio::null());
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -235,5 +270,19 @@ fn spawn_gui_process() {
             cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
         }
         let _ = cmd.spawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tray_constants() {
+        assert_eq!(ID_TRAY_OPEN_GUI, 2001);
+        assert_eq!(ID_TRAY_PROFILE_1, 2002);
+        assert_eq!(ID_TRAY_PROFILE_2, 2003);
+        assert_eq!(ID_TRAY_TOGGLE, 2004);
+        assert_eq!(ID_TRAY_EXIT, 2005);
     }
 }

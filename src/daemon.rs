@@ -33,9 +33,15 @@ extern "system" {
 }
 
 #[cfg(windows)]
-unsafe extern "system" fn console_ctrl_handler(_ctrl_type: u32) -> i32 {
-    GLOBAL_RUNNING.store(false, Ordering::SeqCst);
-    1
+unsafe extern "system" fn console_ctrl_handler(ctrl_type: u32) -> i32 {
+    if ctrl_type == 0 || ctrl_type == 1 {
+        // Explicit Ctrl+C or Ctrl+Break
+        GLOBAL_RUNNING.store(false, Ordering::SeqCst);
+        1
+    } else {
+        // Ignore terminal close / detach so daemon persists in system tray
+        1
+    }
 }
 
 /// IPC command handler bound to the running daemon's state.
@@ -171,6 +177,8 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     let ghelper_active = Arc::clone(&active);
     let ghelper_running = Arc::clone(&running);
     let ghelper_path = crate::ghelper::get_ghelper_config_path();
+    let need_reprime = Arc::new(AtomicBool::new(true));
+    let need_reprime_watcher = Arc::clone(&need_reprime);
 
     let _ghelper_watcher = thread::Builder::new()
         .name("AuraZone_GHelperWatcher".to_string())
@@ -186,10 +194,9 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
                                     last_seen_mode = Some(mode);
                                     if mode == 8 {
                                         // G-Helper switched to Ripple mode!
-                                        if !ghelper_active.load(Ordering::SeqCst) {
-                                            ghelper_active.store(true, Ordering::SeqCst);
-                                            println!("[G-Helper] Mode Ripple (8) aktif -> AuraZone Auto-Nyala.");
-                                        }
+                                        ghelper_active.store(true, Ordering::SeqCst);
+                                        need_reprime_watcher.store(true, Ordering::SeqCst);
+                                        println!("[G-Helper] Mode Ripple (8) aktif -> AuraZone Auto-Nyala & Reprime.");
                                     } else {
                                         // G-Helper switched to another mode (Static, Breathe, Color Cycle, etc.)
                                         if ghelper_active.load(Ordering::SeqCst) {
@@ -210,10 +217,19 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     let mut current_hue = 0.0f32;
     let cascade = Duration::from_millis(LIGHTBAR_CASCADE_DELAY_MS);
     let frame_interval = Duration::from_millis(FRAME_INTERVAL_MS);
+    let mut was_active = false;
 
     while running.load(Ordering::Relaxed) && GLOBAL_RUNNING.load(Ordering::Relaxed) {
         let frame_start = Instant::now();
         let is_active = active.load(Ordering::Relaxed);
+
+        if is_active && (!was_active || need_reprime.swap(false, Ordering::SeqCst)) {
+            // Re-prime microcontroller into Direct Mode 0xBC so it accepts 50 FPS software frames
+            let handshake = crate::hid::encode_handshake();
+            let _ = device.send_feature(&handshake);
+            thread::sleep(Duration::from_millis(30));
+        }
+        was_active = is_active;
         let cfg = shared_config.read().clone();
         let spread = Duration::from_millis(DEFAULT_SPREAD_MS);
         let speed_factor = if cfg.speed > 0.05 { cfg.speed } else { 1.0 };

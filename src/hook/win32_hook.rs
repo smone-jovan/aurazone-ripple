@@ -64,6 +64,16 @@ impl KeyboardHookHandle {
         let join_handle = std::thread::Builder::new()
             .name("WH_KEYBOARD_LL_Worker".into())
             .spawn(move || {
+                #[cfg(windows)]
+                unsafe {
+                    use windows_sys::Win32::System::StationsAndDesktops::{OpenDesktopW, SetThreadDesktop};
+                    let default_name: Vec<u16> = "Default\0".encode_utf16().collect();
+                    let hdesk = OpenDesktopW(default_name.as_ptr(), 0, 0, 0x1FF);
+                    if hdesk != 0 as _ {
+                        SetThreadDesktop(hdesk);
+                    }
+                }
+
                 let thread_id = unsafe { GetCurrentThreadId() };
                 let hook: HHOOK = unsafe {
                     SetWindowsHookExW(

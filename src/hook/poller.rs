@@ -49,6 +49,16 @@ impl PollerHandle {
         let join_handle = std::thread::Builder::new()
             .name("GetAsyncKeyStatePoller".into())
             .spawn(move || {
+                #[cfg(windows)]
+                unsafe {
+                    use windows_sys::Win32::System::StationsAndDesktops::{OpenDesktopW, SetThreadDesktop};
+                    let default_name: Vec<u16> = "Default\0".encode_utf16().collect();
+                    let hdesk = OpenDesktopW(default_name.as_ptr(), 0, 0, 0x1FF);
+                    if hdesk != 0 as _ {
+                        SetThreadDesktop(hdesk);
+                    }
+                }
+
                 let mut last_states = [false; 256];
 
                 while thread_running.load(Ordering::Relaxed) {

@@ -66,6 +66,9 @@ fn spawn_daemon_background(mock: bool) {
         if mock {
             cmd.arg("--mock");
         }
+        cmd.stdin(std::process::Stdio::null());
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -211,6 +214,16 @@ fn main() {
         // Auto-start daemon if not running so GUI is fully live on hardware
         if aura_zone_ripple::ipc::send_ipc_command("STATUS").is_err() {
             spawn_daemon_background(args.mock);
+        }
+        #[cfg(windows)]
+        unsafe {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
+            let title: Vec<u16> = "AuraZoneRipple\0".encode_utf16().collect();
+            let existing_hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
+            if existing_hwnd != 0 as _ {
+                SetForegroundWindow(existing_hwnd);
+                return;
+            }
         }
         if let Err(e) = aura_zone_ripple::gui::run_gui() {
             eprintln!("Failed to launch GUI: {}", e);
