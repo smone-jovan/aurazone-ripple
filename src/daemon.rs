@@ -200,7 +200,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         .spawn(move || {
             let mut last_seen_mode: Option<i64> = None;
             while ghelper_running.load(Ordering::Relaxed) {
-                thread::sleep(Duration::from_millis(300));
+                thread::sleep(Duration::from_millis(50));
                 if ghelper_path.exists() {
                     if let Ok(content) = std::fs::read_to_string(&ghelper_path) {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -251,7 +251,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
                 let u32_val = ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | (c[2] as u32);
                 ui_preview[z].store(u32_val, Ordering::Relaxed);
             }
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(Duration::from_millis(20));
             continue;
         }
 

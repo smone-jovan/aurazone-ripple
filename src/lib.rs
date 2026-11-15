@@ -14,8 +14,10 @@ pub mod tray;
 pub use config::{ConfigError, Preset, ProfileData, RippleConfig};
 pub use daemon::run_daemon;
 pub use patcher::{
-    find_ghelper_exe_path, patch_ghelper_buffer, patch_ghelper_file, unpatch_ghelper_buffer,
-    unpatch_ghelper_file, PatchError, ORIGINAL_BYTES, PATCHED_BYTES, TARGET_SIGNATURE,
+    find_ghelper_exe_path, patch_debounce_timer_buffer, patch_ghelper_buffer, patch_ghelper_file,
+    unpatch_debounce_timer_buffer, unpatch_ghelper_buffer, unpatch_ghelper_file, PatchError,
+    ORIGINAL_BYTES, PATCHED_BYTES, TARGET_SIGNATURE, TIMER_100_MS, TIMER_2000_MS,
+    TIMER_INIT_SIGNATURE, TIMER_WRITE_SIGNATURE,
 };
 pub use gui::run_gui;
 pub use ghelper::{

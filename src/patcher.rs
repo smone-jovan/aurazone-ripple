@@ -20,6 +20,20 @@ pub const TARGET_SIGNATURE: [u8; 10] = [
 pub const ORIGINAL_BYTES: [u8; 3] = [0x25, 0x2c, 0x3c];
 pub const PATCHED_BYTES: [u8; 3] = [0x25, 0x2c, 0x30];
 
+/// 2000.0 ms in IEEE 754 float64 (little-endian)
+pub const TIMER_2000_MS: [u8; 8] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x9F, 0x40];
+/// 100.0 ms in IEEE 754 float64 (little-endian)
+pub const TIMER_100_MS: [u8; 8] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x59, 0x40];
+
+pub const TIMER_WRITE_SIGNATURE: [u8; 14] = [
+    0x7E, 0xBC, 0x05, 0x00, 0x04, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x9F, 0x40,
+];
+
+pub const TIMER_INIT_SIGNATURE: [u8; 19] = [
+    0x73, 0x52, 0x00, 0x00, 0x0A, 0x80, 0x04, 0x00, 0x00, 0x04, 0x23, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x40, 0x9F, 0x40,
+];
+
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum PatchError {
     #[error("Signature not found in binary")]
@@ -95,6 +109,87 @@ pub fn unpatch_ghelper_buffer(data: &mut [u8]) -> Result<usize, PatchError> {
         }
         n => Err(PatchError::AmbiguousSignature(n)),
     }
+}
+
+/// Applies surgical in-place modification to G-Helper's AppConfig debounce timer (2000ms -> 100ms).
+pub fn patch_debounce_timer_buffer(data: &mut [u8]) -> Result<usize, PatchError> {
+    let mut patched_write_sig = TIMER_WRITE_SIGNATURE;
+    patched_write_sig[6..14].copy_from_slice(&TIMER_100_MS);
+
+    // Check if already patched
+    let is_already_patched = data.windows(patched_write_sig.len()).any(|w| w == patched_write_sig);
+    if is_already_patched {
+        return Err(PatchError::AlreadyPatched);
+    }
+
+    let write_matches: Vec<usize> = data
+        .windows(TIMER_WRITE_SIGNATURE.len())
+        .enumerate()
+        .filter_map(|(i, w)| if w == TIMER_WRITE_SIGNATURE { Some(i) } else { None })
+        .collect();
+
+    if write_matches.is_empty() {
+        return Err(PatchError::SignatureNotFound);
+    }
+    if write_matches.len() > 1 {
+        return Err(PatchError::AmbiguousSignature(write_matches.len()));
+    }
+
+    let write_off = write_matches[0];
+    data[write_off + 6..write_off + 14].copy_from_slice(&TIMER_100_MS);
+
+    // Also patch init signature if present
+    let init_matches: Vec<usize> = data
+        .windows(TIMER_INIT_SIGNATURE.len())
+        .enumerate()
+        .filter_map(|(i, w)| if w == TIMER_INIT_SIGNATURE { Some(i) } else { None })
+        .collect();
+    if init_matches.len() == 1 {
+        let init_off = init_matches[0];
+        data[init_off + 11..init_off + 19].copy_from_slice(&TIMER_100_MS);
+    }
+
+    Ok(write_off)
+}
+
+/// Restores original 2000ms debounce timer in G-Helper buffer.
+pub fn unpatch_debounce_timer_buffer(data: &mut [u8]) -> Result<usize, PatchError> {
+    let mut patched_write_sig = TIMER_WRITE_SIGNATURE;
+    patched_write_sig[6..14].copy_from_slice(&TIMER_100_MS);
+
+    let write_matches: Vec<usize> = data
+        .windows(patched_write_sig.len())
+        .enumerate()
+        .filter_map(|(i, w)| if w == patched_write_sig { Some(i) } else { None })
+        .collect();
+
+    if write_matches.is_empty() {
+        if data.windows(TIMER_WRITE_SIGNATURE.len()).any(|w| w == TIMER_WRITE_SIGNATURE) {
+            return Err(PatchError::NotPatched);
+        } else {
+            return Err(PatchError::SignatureNotFound);
+        }
+    }
+    if write_matches.len() > 1 {
+        return Err(PatchError::AmbiguousSignature(write_matches.len()));
+    }
+
+    let write_off = write_matches[0];
+    data[write_off + 6..write_off + 14].copy_from_slice(&TIMER_2000_MS);
+
+    let mut patched_init_sig = TIMER_INIT_SIGNATURE;
+    patched_init_sig[11..19].copy_from_slice(&TIMER_100_MS);
+    let init_matches: Vec<usize> = data
+        .windows(patched_init_sig.len())
+        .enumerate()
+        .filter_map(|(i, w)| if w == patched_init_sig { Some(i) } else { None })
+        .collect();
+    if init_matches.len() == 1 {
+        let init_off = init_matches[0];
+        data[init_off + 11..init_off + 19].copy_from_slice(&TIMER_2000_MS);
+    }
+
+    Ok(write_off)
 }
 
 /// Auto-discovers the path to `GHelper.exe` on the current machine.
@@ -186,7 +281,33 @@ pub fn patch_ghelper_file(path: &Path) -> Result<(), PatchError> {
     let mut content = std::fs::read(path)
         .map_err(|e| PatchError::Io(format!("Failed to read binary: {}", e)))?;
 
-    patch_ghelper_buffer(&mut content)?;
+    let mode_res = patch_ghelper_buffer(&mut content);
+    let timer_res = patch_debounce_timer_buffer(&mut content);
+
+    let mut any_patched = false;
+    if mode_res.is_ok() {
+        any_patched = true;
+    }
+    if timer_res.is_ok() {
+        any_patched = true;
+    }
+
+    if !any_patched {
+        let mode_already = mode_res == Err(PatchError::AlreadyPatched);
+        let timer_already = timer_res == Err(PatchError::AlreadyPatched);
+        if mode_already && timer_already {
+            let _ = spawn_ghelper(path);
+            return Err(PatchError::AlreadyPatched);
+        }
+        if mode_res.is_err() && !mode_already {
+            let _ = spawn_ghelper(path);
+            return Err(mode_res.unwrap_err());
+        }
+        if timer_res.is_err() && !timer_already {
+            let _ = spawn_ghelper(path);
+            return Err(timer_res.unwrap_err());
+        }
+    }
 
     std::fs::write(path, content)
         .map_err(|e| PatchError::Io(format!("Failed to write patched binary: {}", e)))?;
@@ -211,7 +332,8 @@ pub fn unpatch_ghelper_file(path: &Path) -> Result<(), PatchError> {
         let mut content = std::fs::read(path)
             .map_err(|e| PatchError::Io(format!("Failed to read binary: {}", e)))?;
 
-        unpatch_ghelper_buffer(&mut content)?;
+        let _ = unpatch_ghelper_buffer(&mut content);
+        let _ = unpatch_debounce_timer_buffer(&mut content);
 
         std::fs::write(path, content)
             .map_err(|e| PatchError::Io(format!("Failed to write unpatched binary: {}", e)))?;
@@ -267,5 +389,31 @@ mod tests {
 
         let err = patch_ghelper_buffer(&mut buffer).unwrap_err();
         assert_eq!(err, PatchError::AmbiguousSignature(2));
+    }
+
+    #[test]
+    fn test_patch_and_unpatch_debounce_timer() {
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(b"HEADER_PADDING_BYTES_1234567890");
+        buffer.extend_from_slice(&TIMER_WRITE_SIGNATURE);
+        buffer.extend_from_slice(&TIMER_INIT_SIGNATURE);
+        buffer.extend_from_slice(b"TAIL_PADDING_BYTES_0987654321");
+
+        let off = patch_debounce_timer_buffer(&mut buffer).expect("Patch debounce timer must succeed");
+        assert_eq!(off, 31);
+        assert_eq!(&buffer[off + 6..off + 14], &TIMER_100_MS);
+
+        // Double patch should fail with AlreadyPatched
+        let err = patch_debounce_timer_buffer(&mut buffer).unwrap_err();
+        assert_eq!(err, PatchError::AlreadyPatched);
+
+        // Unpatch
+        let unpatch_off = unpatch_debounce_timer_buffer(&mut buffer).expect("Unpatch must succeed");
+        assert_eq!(unpatch_off, 31);
+        assert_eq!(&buffer[unpatch_off + 6..unpatch_off + 14], &TIMER_2000_MS);
+
+        // Double unpatch should fail with NotPatched
+        let unpatch_err = unpatch_debounce_timer_buffer(&mut buffer).unwrap_err();
+        assert_eq!(unpatch_err, PatchError::NotPatched);
     }
 }
