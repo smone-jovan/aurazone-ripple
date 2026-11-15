@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-blue.svg?logo=windows)](https://microsoft.com)
 [![Hardware](https://img.shields.io/badge/Hardware-ASUS%20ROG%20Strix%20G513-red.svg?logo=asus)](https://rog.asus.com)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-141%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-142%20passed-brightgreen.svg)](tests/)
 
 ---
 
@@ -32,9 +32,10 @@ Unlike heavy RGB suites (SignalRGB, Armoury Crate) that consume hundreds of mega
   - 6 Built-in Presets: *Cyberpunk, Volcano, Matrix, Synthwave, Rainbow Keystrokes, and Stealth*.
   - **Custom User Profiles 1 & 2**: Save, customize, and switch between your own tailored profiles with one click.
 - **🎮 Seamless G-Helper Native Dropdown Integration**:
-  - **Surgical In-Place Patcher (`--patch-ghelper`)**: Unhides the official "Ripple" mode directly inside G-Helper's keyboard mode dropdown with zero clutter and zero risk of bundle corruption.
-  - **Lifecycle Auto-Watcher**: Monitors G-Helper profile changes. When "Ripple" is selected, daemon automatically wakes up and re-primes the microcontroller into Direct Mode (`0xBC`).
-  - **Zero-Packet Sleep**: When switching back to Static, Breathing, or Color Cycle in G-Helper, daemon instantly applies G-Helper's static color and sleeps without sending any USB frames, preventing any bus contention.
+  - **Surgical In-Place Patcher (`--patch-ghelper`)**: Unhides the official "Ripple" mode directly inside G-Helper's keyboard mode dropdown with zero clutter and zero risk of bundle corruption. Also patches G-Helper's internal `AppConfig` disk debounce timer from 2,000 ms to 100 ms.
+  - **Ultra-Fast Sub-150ms Lifecycle Auto-Watcher**: Monitors G-Helper profile changes at 50 ms intervals. Mode transitions execute in ~100–150 ms (down from 2.4s).
+  - **15-Frame Continuous Direct Mode Lock**: Automatically sends a 15-frame (300 ms) continuous handshake burst upon activation to guarantee Direct Mode (`0xBC`) completely overrides G-Helper's trailing builtin packets.
+  - **Pure Zero-Packet Sleep**: When switching back to Static, Breathing, Rainbow, or Strobe in G-Helper, daemon enters a 100% zero-packet state without sending any USB frames, giving G-Helper full, undisturbed control over its built-in modes.
 - **🔕 Silent System Tray Companion**:
   - Pinned native tray icon sitting quietly beside G-Helper in the Windows taskbar.
   - Quick right-click menu: Open GUI, Activate Profile 1, Activate Profile 2, Pause/Resume, and Clean Exit.
