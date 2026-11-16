@@ -199,6 +199,8 @@ impl DebounceFilter {
         let last_time = self.last_press_ms[idx].load(Ordering::Acquire);
         let window = self.debounce_duration_ms.load(Ordering::Relaxed);
         if last_time != 0 && now_ms.saturating_sub(last_time) < window {
+            // Roll back the down-bit because the keystroke was rejected by the sliding window debounce
+            self.down_bitmap[word_idx].fetch_and(!bit_mask, Ordering::AcqRel);
             return false;
         }
 

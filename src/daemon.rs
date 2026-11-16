@@ -117,16 +117,19 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     file_log(&format!("3. Settings loaded from {:?}, preset={:?}", settings_path, initial_config.preset));
     let shared_config = Arc::new(RwLock::new(initial_config));
 
+    file_log("3a. Opening Aura HID device...");
     // 3. Initialize Aura HID Device (physical or mock)
     let mut device: Box<dyn AuraDevice> = if mock {
         Box::new(MockAuraDevice::new())
     } else {
         match Win32AuraDevice::open() {
             Ok(dev) => {
+                file_log("3b. Win32AuraDevice::open succeeded.");
                 log_info!("[OK] Kontroler Aura Direct siap pada hardware (Col05).");
                 Box::new(dev)
             }
             Err(e) => {
+                file_log(&format!("3b. Win32AuraDevice::open failed: {:?}, fallback to mock.", e));
                 log_err!(
                     "Warning: Failed to open physical Aura device ({:?}), falling back to mock device.",
                     e
@@ -135,6 +138,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
+    file_log("4. Resolving initial G-Helper mode...");
 
     // 4. Shared daemon state
     let ghelper_cfg_path = crate::ghelper::get_ghelper_config_path();

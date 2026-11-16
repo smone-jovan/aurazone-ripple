@@ -74,6 +74,12 @@ impl KeyboardHookHandle {
             .name("WH_KEYBOARD_LL_Worker".into())
             .spawn(move || {
                 #[cfg(windows)]
+                let orig_hdesk = unsafe {
+                    use windows_sys::Win32::System::StationsAndDesktops::GetThreadDesktop;
+                    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+                    GetThreadDesktop(GetCurrentThreadId())
+                };
+                #[cfg(windows)]
                 let mut hook_hdesk = 0 as windows_sys::Win32::Foundation::HANDLE;
                 #[cfg(windows)]
                 unsafe {
@@ -132,7 +138,11 @@ impl KeyboardHookHandle {
                 #[cfg(windows)]
                 if hook_hdesk != 0 as _ {
                     unsafe {
-                        windows_sys::Win32::System::StationsAndDesktops::CloseDesktop(hook_hdesk);
+                        use windows_sys::Win32::System::StationsAndDesktops::{CloseDesktop, SetThreadDesktop};
+                        if orig_hdesk != 0 as _ {
+                            SetThreadDesktop(orig_hdesk);
+                        }
+                        CloseDesktop(hook_hdesk);
                     }
                 }
             })

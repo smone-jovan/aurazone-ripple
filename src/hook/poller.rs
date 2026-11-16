@@ -50,6 +50,12 @@ impl PollerHandle {
             .spawn(move || {
                 let mut last_states = [false; 256];
                 #[cfg(windows)]
+                let orig_hdesk = unsafe {
+                    use windows_sys::Win32::System::StationsAndDesktops::GetThreadDesktop;
+                    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+                    GetThreadDesktop(GetCurrentThreadId())
+                };
+                #[cfg(windows)]
                 let mut attached_hdesk = 0 as windows_sys::Win32::Foundation::HANDLE;
 
                 while thread_running.load(Ordering::Relaxed) {
@@ -105,7 +111,11 @@ impl PollerHandle {
                 #[cfg(windows)]
                 if attached_hdesk != 0 as _ {
                     unsafe {
-                        windows_sys::Win32::System::StationsAndDesktops::CloseDesktop(attached_hdesk);
+                        use windows_sys::Win32::System::StationsAndDesktops::{CloseDesktop, SetThreadDesktop};
+                        if orig_hdesk != 0 as _ {
+                            SetThreadDesktop(orig_hdesk);
+                        }
+                        CloseDesktop(attached_hdesk);
                     }
                 }
             })
