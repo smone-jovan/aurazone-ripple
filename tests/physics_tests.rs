@@ -386,13 +386,17 @@ fn test_exhaustive_vk_mapping_boundaries() {
     assert_eq!(map_vk_to_zone(0x4D), 2, "M -> Zone 2");
     assert_eq!(map_vk_to_zone(0xBC), 2, "Comma -> Zone 2");
 
-    // Zone 3: Right / Numpad / Navigation
+    // Zone 3: Right / Numpad / Navigation / Media Keys
     assert_eq!(map_vk_to_zone(0xBD), 3, "- -> Zone 3");
     assert_eq!(map_vk_to_zone(0x50), 3, "P -> Zone 3");
     assert_eq!(map_vk_to_zone(0x2E), 3, "Del -> Zone 3");
     assert_eq!(map_vk_to_zone(0x25), 3, "Left Arrow -> Zone 3");
     assert_eq!(map_vk_to_zone(0x60), 3, "Numpad 0 -> Zone 3");
     assert_eq!(map_vk_to_zone(0x6B), 3, "Numpad + -> Zone 3");
+    assert_eq!(map_vk_to_zone(0xB0), 3, "VK_MEDIA_NEXT_TRACK -> Zone 3");
+    assert_eq!(map_vk_to_zone(0xB1), 3, "VK_MEDIA_PREV_TRACK -> Zone 3");
+    assert_eq!(map_vk_to_zone(0xB2), 3, "VK_MEDIA_STOP -> Zone 3");
+    assert_eq!(map_vk_to_zone(0xB3), 3, "VK_MEDIA_PLAY_PAUSE -> Zone 3");
 }
 
 // ============================================================================

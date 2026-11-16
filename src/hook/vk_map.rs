@@ -58,7 +58,7 @@ const fn vk_to_zone_const(vk: u8) -> u8 {
         => 1,
 
         // ====================================================================
-        // Zone 2: Mid-Right / U-I-O / J-K-L / M / 8-0 / F8-F10 / Comma / RAlt / M4
+        // Zone 2: Mid-Right / U-I-O / J-K-L / M / 8-0 / F8-F10 / Comma / RAlt
         // ====================================================================
         0x77..=0x79 // VK_F8..=VK_F10
         | 0x38..=0x39 | 0x30 // '8', '9', '0'
@@ -67,11 +67,10 @@ const fn vk_to_zone_const(vk: u8) -> u8 {
         | 0x4D // 'M'
         | 0xBC // VK_OEM_COMMA (,<)
         | 0xA5 // VK_RMENU (RAlt / AltGr)
-        | 0xB3 // VK_MEDIA_PLAY_PAUSE (M4 hotkey)
         => 2,
 
         // ====================================================================
-        // Zone 3: Right / Numpad / Enter / Backspace / Arrows / Nav / Del / F11-F12
+        // Zone 3: Right / Numpad / Enter / Backspace / Arrows / Nav / Del / Media Keys
         // ====================================================================
         0x7A..=0x7B // VK_F11..=VK_F12
         | 0xBD // VK_OEM_MINUS (-_)
@@ -89,6 +88,7 @@ const fn vk_to_zone_const(vk: u8) -> u8 {
         | 0x2C | 0x13 | 0x91 // VK_SNAPSHOT (PrtSc), VK_PAUSE, VK_SCROLL
         | 0x90 // VK_NUMLOCK
         | 0x60..=0x6F // VK_NUMPAD0..=VK_NUMPAD9, Multiply, Add, Separator, Subtract, Decimal, Divide
+        | 0xB0..=0xB3 // VK_MEDIA_NEXT_TRACK (0xB0), VK_MEDIA_PREV_TRACK (0xB1), VK_MEDIA_STOP (0xB2), VK_MEDIA_PLAY_PAUSE (0xB3)
         => 3,
 
         // Fallback for unmapped keys: interior Zone 1
