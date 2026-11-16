@@ -75,11 +75,12 @@ impl KeyboardHookHandle {
                 }
 
                 let thread_id = unsafe { GetCurrentThreadId() };
+                let h_instance = unsafe { windows_sys::Win32::System::LibraryLoader::GetModuleHandleW(std::ptr::null()) };
                 let hook: HHOOK = unsafe {
                     SetWindowsHookExW(
                         WH_KEYBOARD_LL,
                         Some(low_level_keyboard_proc),
-                        std::ptr::null_mut(),
+                        h_instance,
                         0,
                     )
                 };
@@ -90,8 +91,12 @@ impl KeyboardHookHandle {
                     return;
                 }
 
-                // Force creation of message queue and notify starter
+                // Force creation of message queue by peeking and notify starter
                 let mut msg: MSG = unsafe { std::mem::zeroed() };
+                unsafe {
+                    use windows_sys::Win32::UI::WindowsAndMessaging::{PeekMessageW, PM_NOREMOVE};
+                    PeekMessageW(&mut msg, 0 as _, 0, 0, PM_NOREMOVE);
+                }
                 let _ = init_tx.send(Ok(thread_id));
 
                 // Pump Win32 message queue

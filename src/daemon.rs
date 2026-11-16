@@ -132,25 +132,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // 4. Initialize Keyboard Listener (hook + poller or mock)
-    let mut listener = if mock {
-        KeyboardListener::new_mock()
-    } else {
-        match KeyboardListener::start() {
-            Ok(lis) => lis,
-            Err(e) => {
-                log_err!(
-                    "Warning: Failed to start keyboard hook ({:?}), falling back to mock listener.",
-                    e
-                );
-                KeyboardListener::new_mock()
-            }
-        }
-    };
-    let rx = listener.receiver();
-    file_log("4. Device and listener ready.");
-
-    // 5. Shared daemon state
+    // 4. Shared daemon state
     let ghelper_cfg_path = crate::ghelper::get_ghelper_config_path();
     let initial_ghelper_mode = if ghelper_cfg_path.exists() {
         std::fs::read_to_string(&ghelper_cfg_path)
@@ -170,9 +152,39 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
 
     let running = Arc::new(AtomicBool::new(true));
     let active = Arc::new(AtomicBool::new(start_active));
+    let need_reprime = Arc::new(AtomicBool::new(true));
+    let need_reprime_watcher = Arc::clone(&need_reprime);
+    let need_reprime_tray = Arc::clone(&need_reprime);
     let ui_preview: Arc<[AtomicU32; 8]> = Arc::new(std::array::from_fn(|_| AtomicU32::new(0)));
 
-    // 6. Start Named Pipe IPC Server
+    // 5. Spawn Windows System Tray Icon thread FIRST (establishes interactive desktop presence & window)
+    let _tray_thread = crate::tray::TrayIconManager::new(
+        Arc::clone(&running),
+        Arc::clone(&active),
+        need_reprime_tray,
+    )
+    .spawn_thread();
+    file_log("5. Tray thread spawned.");
+
+    // 6. Initialize Keyboard Listener (hook + poller or mock) with interactive desktop ready
+    let mut listener = if mock {
+        KeyboardListener::new_mock()
+    } else {
+        match KeyboardListener::start() {
+            Ok(lis) => lis,
+            Err(e) => {
+                log_err!(
+                    "Warning: Failed to start keyboard hook ({:?}), falling back to mock listener.",
+                    e
+                );
+                KeyboardListener::new_mock()
+            }
+        }
+    };
+    let rx = listener.receiver();
+    file_log("6. Device and listener ready.");
+
+    // 7. Start Named Pipe IPC Server
     let pipe_name = NamedPipeServer::get_pipe_name();
     let handler = Arc::new(DaemonCommandHandler {
         running: Arc::clone(&running),
@@ -183,19 +195,12 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let mut server = NamedPipeServer::start(pipe_name.clone(), handler, Arc::clone(&running))?;
-    file_log("5. NamedPipeServer running.");
+    file_log("7. NamedPipeServer running.");
 
-    // 6a. Spawn Windows System Tray Icon thread
-    let _tray_thread = crate::tray::TrayIconManager::new(Arc::clone(&running), Arc::clone(&active))
-        .spawn_thread();
-    file_log("6. Tray thread spawned.");
-
-    // 6b. Spawn G-Helper Config Watcher thread (Auto-Nyala saat Ripple (8), Auto-Pause saat mode lain)
+    // 8. Spawn G-Helper Config Watcher thread (Auto-Nyala saat Ripple (8), Auto-Pause saat mode lain)
     let ghelper_active = Arc::clone(&active);
     let ghelper_running = Arc::clone(&running);
     let ghelper_path = crate::ghelper::get_ghelper_config_path();
-    let need_reprime = Arc::new(AtomicBool::new(true));
-    let need_reprime_watcher = Arc::clone(&need_reprime);
 
     let _ghelper_watcher = thread::Builder::new()
         .name("AuraZone_GHelperWatcher".to_string())

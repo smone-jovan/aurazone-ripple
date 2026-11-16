@@ -29,20 +29,32 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 pub const WM_TRAYICON: u32 = WM_APP + 101;
+pub const WM_POWERBROADCAST: u32 = 0x0218;
+pub const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
+pub const PBT_APMRESUMESUSPEND: usize = 0x0007;
+
 pub const ID_TRAY_OPEN_GUI: usize = 2001;
 pub const ID_TRAY_PROFILE_1: usize = 2002;
 pub const ID_TRAY_PROFILE_2: usize = 2003;
 pub const ID_TRAY_TOGGLE: usize = 2004;
 pub const ID_TRAY_EXIT: usize = 2005;
 
+static TRAY_REPRIME: parking_lot::RwLock<Option<Arc<AtomicBool>>> = parking_lot::RwLock::new(None);
+
 pub struct TrayIconManager {
     running: Arc<AtomicBool>,
     active: Arc<AtomicBool>,
+    _need_reprime: Arc<AtomicBool>,
 }
 
 impl TrayIconManager {
-    pub fn new(running: Arc<AtomicBool>, active: Arc<AtomicBool>) -> Self {
-        Self { running, active }
+    pub fn new(running: Arc<AtomicBool>, active: Arc<AtomicBool>, need_reprime: Arc<AtomicBool>) -> Self {
+        *TRAY_REPRIME.write() = Some(Arc::clone(&need_reprime));
+        Self {
+            running,
+            active,
+            _need_reprime: need_reprime,
+        }
     }
 
     pub fn is_active(&self) -> bool {
@@ -189,6 +201,15 @@ unsafe extern "system" fn tray_window_proc(
                 _ => {}
             }
             0
+        }
+        WM_POWERBROADCAST => {
+            let event = wparam as usize;
+            if event == PBT_APMRESUMEAUTOMATIC || event == PBT_APMRESUMESUSPEND {
+                if let Some(reprime) = TRAY_REPRIME.read().as_ref() {
+                    reprime.store(true, Ordering::SeqCst);
+                }
+            }
+            1
         }
         WM_DESTROY => {
             PostQuitMessage(0);
