@@ -120,6 +120,9 @@ fn spawn_daemon_background(mock: bool) {
         if mock {
             cmd.arg("--mock");
         }
+        if let Ok(pipe) = std::env::var("AURAZONE_PIPE_NAME") {
+            cmd.env("AURAZONE_PIPE_NAME", pipe);
+        }
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::null());
@@ -179,13 +182,9 @@ fn main() {
             Ok(resp) => {
                 cli_print(&resp);
             }
-            Err(_) => {
-                cli_println("AuraZoneRipple daemon not running. Spawning daemon in background...");
-                spawn_daemon_background(args.mock);
-                match aura_zone_ripple::ipc::send_ipc_command("STATUS") {
-                    Ok(resp) => cli_print(&format!("Daemon started: {}", resp)),
-                    Err(e) => cli_println(&format!("Daemon started, but pipe query failed: {}", e)),
-                }
+            Err(e) => {
+                cli_println(&format!("Error connecting to daemon: {}", e));
+                std::process::exit(1);
             }
         }
     } else if args.stop {
@@ -309,23 +308,36 @@ fn main() {
             std::process::exit(1);
         }
     } else {
+        // Headless test bypass
+        if std::env::var("AURAZONE_HEADLESS").is_ok() {
+            cli_println("Headless mode: GUI window creation skipped.");
+            return;
+        }
+
         // Double-clicked or launched without arguments in Windows: open the GUI!
         if aura_zone_ripple::ipc::send_ipc_command("STATUS").is_err() {
             spawn_daemon_background(args.mock);
         }
         #[cfg(windows)]
         unsafe {
-            use windows_sys::Win32::System::StationsAndDesktops::{OpenDesktopW, SetThreadDesktop};
+            use windows_sys::Win32::System::StationsAndDesktops::{
+                CloseDesktop, OpenDesktopW, SetThreadDesktop,
+            };
             use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
             let default_name: Vec<u16> = "Default\0".encode_utf16().collect();
             let hdesk = OpenDesktopW(default_name.as_ptr(), 0, 0, 0x1FF);
             if hdesk != 0 as _ {
-                SetThreadDesktop(hdesk);
+                if SetThreadDesktop(hdesk) == 0 {
+                    CloseDesktop(hdesk);
+                }
             }
             let title: Vec<u16> = "AuraZoneRipple — Aura Control Center\0".encode_utf16().collect();
             let existing_hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
             if existing_hwnd != 0 as _ {
                 SetForegroundWindow(existing_hwnd);
+                if hdesk != 0 as _ {
+                    CloseDesktop(hdesk);
+                }
                 return;
             }
         }

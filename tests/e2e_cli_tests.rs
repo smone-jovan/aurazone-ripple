@@ -511,7 +511,7 @@ fn test_t1_f8_vk_mapping_zone_3_numpad() {
 
 #[test]
 fn test_t1_f8_per_key_debounce_window() {
-    let mut debouncer = DebounceFilter::new(60);
+    let debouncer = DebounceFilter::new(60);
     let t0 = Instant::now();
 
     // First press allowed
@@ -524,7 +524,8 @@ fn test_t1_f8_per_key_debounce_window() {
     // Press different key 20ms later: allowed!
     assert!(debouncer.should_process(0x41, t1));
 
-    // Press original key 70ms later: allowed!
+    // Release key and press original key 70ms later: allowed!
+    debouncer.notify_key_up(0x57);
     let t2 = t0 + Duration::from_millis(70);
     assert!(debouncer.should_process(0x57, t2));
 }
@@ -815,7 +816,10 @@ fn test_t2_f3_mock_device_ring_buffer_overflow() {
 #[test]
 fn test_t2_f4_empty_cli_arguments() {
     let bin = require_binary();
-    let output = Command::new(&bin).output().expect("Failed to execute without args");
+    let output = Command::new(&bin)
+        .env("AURAZONE_HEADLESS", "1")
+        .output()
+        .expect("Failed to execute without args");
     assert!(output.status.code().is_some());
 }
 
@@ -1009,7 +1013,7 @@ fn test_t2_f8_unknown_vk_code_safe_fallback() {
 
 #[test]
 fn test_t2_f8_zero_delay_simultaneous_keystrokes() {
-    let mut debouncer = DebounceFilter::new(60);
+    let debouncer = DebounceFilter::new(60);
     let now = Instant::now();
 
     let keys = [0x57, 0x41, 0x53, 0x44, 0x54, 0x59, 0x55, 0x49, 0x60, 0x0D];
@@ -1099,7 +1103,7 @@ fn test_t3_p1_daemon_mock_ipc_lifecycle() {
 #[test]
 fn test_t3_p2_keystroke_to_mock_packet_flow() {
     let mut dev = MockAuraDevice::new();
-    let mut debouncer = DebounceFilter::new(60);
+    let debouncer = DebounceFilter::new(60);
 
     // Keystroke WASD (0x57) -> Zone 0
     let now = Instant::now();
@@ -1239,7 +1243,7 @@ fn test_t4_scenario_2_hardware_hotkey_toggle_simulation() {
 #[test]
 fn test_t4_scenario_3_fast_touch_typing_keystroke_burst() {
     let mut dev = MockAuraDevice::new();
-    let mut debouncer = DebounceFilter::new(60);
+    let debouncer = DebounceFilter::new(60);
 
     // Simulate 120 WPM typing burst: 25 keys within 2 seconds
     let keys = [

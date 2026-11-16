@@ -271,15 +271,18 @@ pub fn patch_ghelper_file(path: &Path) -> Result<(), PatchError> {
 
     kill_running_ghelper();
 
-    // Create backup if not already existing
-    let bak_path = path.with_extension("bak");
-    if !bak_path.exists() {
-        std::fs::copy(path, &bak_path)
-            .map_err(|e| PatchError::Io(format!("Failed to create backup: {}", e)))?;
-    }
-
     let mut content = std::fs::read(path)
         .map_err(|e| PatchError::Io(format!("Failed to read binary: {}", e)))?;
+
+    // Create backup ONLY if not existing AND original unpatched signatures are present
+    let bak_path = path.with_extension("bak");
+    if !bak_path.exists() {
+        let has_orig_branch = content.windows(TARGET_SIGNATURE.len()).any(|w| w == TARGET_SIGNATURE);
+        let has_orig_timer = content.windows(TIMER_WRITE_SIGNATURE.len()).any(|w| w == TIMER_WRITE_SIGNATURE);
+        if has_orig_branch || has_orig_timer {
+            let _ = std::fs::copy(path, &bak_path);
+        }
+    }
 
     let mode_res = patch_ghelper_buffer(&mut content);
     let timer_res = patch_debounce_timer_buffer(&mut content);
@@ -309,8 +312,18 @@ pub fn patch_ghelper_file(path: &Path) -> Result<(), PatchError> {
         }
     }
 
-    std::fs::write(path, content)
-        .map_err(|e| PatchError::Io(format!("Failed to write patched binary: {}", e)))?;
+    // Atomic file replacement via temporary file
+    let tmp_path = path.with_extension("patched.tmp");
+    std::fs::write(&tmp_path, &content)
+        .map_err(|e| PatchError::Io(format!("Failed to write temporary patched binary: {}", e)))?;
+
+    if std::fs::rename(&tmp_path, path).is_err() {
+        if let Err(e) = std::fs::copy(&tmp_path, path) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(PatchError::Io(format!("Failed to replace binary: {}", e)));
+        }
+        let _ = std::fs::remove_file(&tmp_path);
+    }
 
     let _ = spawn_ghelper(path);
     Ok(())
@@ -335,8 +348,17 @@ pub fn unpatch_ghelper_file(path: &Path) -> Result<(), PatchError> {
         let _ = unpatch_ghelper_buffer(&mut content);
         let _ = unpatch_debounce_timer_buffer(&mut content);
 
-        std::fs::write(path, content)
-            .map_err(|e| PatchError::Io(format!("Failed to write unpatched binary: {}", e)))?;
+        let tmp_path = path.with_extension("unpatched.tmp");
+        std::fs::write(&tmp_path, &content)
+            .map_err(|e| PatchError::Io(format!("Failed to write temporary binary: {}", e)))?;
+
+        if std::fs::rename(&tmp_path, path).is_err() {
+            if let Err(e) = std::fs::copy(&tmp_path, path) {
+                let _ = std::fs::remove_file(&tmp_path);
+                return Err(PatchError::Io(format!("Failed to replace binary: {}", e)));
+            }
+            let _ = std::fs::remove_file(&tmp_path);
+        }
     }
 
     let _ = spawn_ghelper(path);

@@ -6,7 +6,6 @@ pub mod win32_hook;
 
 use std::sync::Arc;
 use crossbeam_channel::{Receiver, Sender};
-use parking_lot::Mutex;
 use thiserror::Error;
 
 pub use poller::{PollerHandle, POLLED_KEYS};
@@ -29,7 +28,7 @@ pub struct KeyboardListener {
     poller: Option<PollerHandle>,
     sender: Sender<KeyEvent>,
     receiver: Receiver<KeyEvent>,
-    debouncer: Arc<Mutex<DebounceFilter>>,
+    debouncer: Arc<DebounceFilter>,
 }
 
 impl KeyboardListener {
@@ -41,7 +40,7 @@ impl KeyboardListener {
     /// Starts listener with configurable hook/poller options (supports mock/testing and headless mode).
     pub fn start_with_options(enable_hook: bool, enable_poller: bool) -> Result<Self, HookError> {
         let (sender, receiver) = crossbeam_channel::unbounded();
-        let debouncer = Arc::new(Mutex::new(DebounceFilter::default()));
+        let debouncer = Arc::new(DebounceFilter::default());
 
         let hook = if enable_hook {
             Some(KeyboardHookHandle::start(sender.clone(), debouncer.clone())?)
@@ -77,7 +76,7 @@ impl KeyboardListener {
         self.sender.clone()
     }
 
-    pub fn debouncer(&self) -> Arc<Mutex<DebounceFilter>> {
+    pub fn debouncer(&self) -> Arc<DebounceFilter> {
         self.debouncer.clone()
     }
 

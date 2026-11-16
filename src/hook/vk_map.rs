@@ -6,6 +6,7 @@
 //! - Zone 2: Mid-Right / U-I-O / J-K-L / M / 8-0 / F8-F10 / Comma / RAlt / M4
 //! - Zone 3: Right / Numpad / Enter / Backspace / Arrows / Del / F11-F12 / Nav
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// Standard debounce window for keyboard input filtering (60 milliseconds).
@@ -122,14 +123,16 @@ pub fn map_vk_to_zone(vk_code: u32) -> usize {
     }
 }
 
-/// High-performance zero-allocation per-key sliding window debounce filter.
+/// High-performance lock-free zero-allocation per-key sliding window debounce filter
+/// with hardware key-hold auto-repeat suppression.
 ///
-/// Uses an inline 256-element array of `Option<Instant>` (4096 bytes total),
-/// completely eliminating heap allocations, hashing overhead, and pointer indirection.
-#[derive(Debug, Clone)]
+/// Uses an inline 256-element array of `AtomicU64` timestamps and a 256-bit `AtomicU64` bitmap
+/// to track pressed keys, completely eliminating mutex lock contention and heap allocations.
 pub struct DebounceFilter {
-    last_press_times: [Option<Instant>; 256],
-    debounce_duration: Duration,
+    last_press_ms: [AtomicU64; 256],
+    down_bitmap: [AtomicU64; 4],
+    debounce_duration_ms: AtomicU64,
+    epoch: Instant,
 }
 
 impl Default for DebounceFilter {
@@ -138,53 +141,118 @@ impl Default for DebounceFilter {
     }
 }
 
+impl std::fmt::Debug for DebounceFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DebounceFilter")
+            .field(
+                "debounce_duration_ms",
+                &self.debounce_duration_ms.load(Ordering::Relaxed),
+            )
+            .finish()
+    }
+}
+
 impl DebounceFilter {
     /// Creates a new `DebounceFilter` with the specified debounce duration in milliseconds.
-    pub const fn new(debounce_ms: u64) -> Self {
+    pub fn new(debounce_ms: u64) -> Self {
         Self {
-            last_press_times: [None; 256],
-            debounce_duration: Duration::from_millis(debounce_ms),
+            last_press_ms: std::array::from_fn(|_| AtomicU64::new(0)),
+            down_bitmap: std::array::from_fn(|_| AtomicU64::new(0)),
+            debounce_duration_ms: AtomicU64::new(debounce_ms),
+            epoch: Instant::now(),
         }
     }
 
     /// Evaluates whether a virtual keypress event should be processed or filtered out.
     ///
-    /// Returns `true` if the key has not been pressed within the debounce window,
-    /// recording the timestamp and allowing the event. Returns `false` if debounced.
+    /// 1. Auto-repeat suppression: If the key is already marked down in `down_bitmap`,
+    ///    it is immediately filtered out (returns `false`), preventing continuous ripple
+    ///    spam when holding keys (e.g. 'W' in games).
+    /// 2. Sliding window debounce: If the elapsed time since last press is shorter than the
+    ///    debounce window, it is filtered out (returns `false`).
+    ///
+    /// Thread-safe and 100% lock-free: operates solely on atomic instructions.
     #[inline]
-    pub fn should_process(&mut self, vk_code: u32, now: Instant) -> bool {
-        if (vk_code as usize) < self.last_press_times.len() {
-            let idx = vk_code as usize;
-            if let Some(last_time) = self.last_press_times[idx] {
-                if let Some(elapsed) = now.checked_duration_since(last_time) {
-                    if elapsed < self.debounce_duration {
-                        return false;
-                    }
-                }
-            }
-            self.last_press_times[idx] = Some(now);
-            true
-        } else {
+    pub fn should_process(&self, vk_code: u32, now: Instant) -> bool {
+        let idx = vk_code as usize;
+        if idx >= 256 {
             // Out-of-range fallback: allow processing
-            true
+            return true;
+        }
+
+        // 1. Hardware key-hold auto-repeat suppression via 256-bit atomic bitmap
+        let word_idx = idx / 64;
+        let bit_mask = 1u64 << (idx % 64);
+        let prev_bits = self.down_bitmap[word_idx].fetch_or(bit_mask, Ordering::AcqRel);
+        if (prev_bits & bit_mask) != 0 {
+            // Key is already held down! Discard auto-repeat keystrokes
+            return false;
+        }
+
+        // 2. Sliding window debounce
+        let now_ms = if now >= self.epoch {
+            now.duration_since(self.epoch).as_millis() as u64 + 1
+        } else {
+            1
+        };
+
+        let last_time = self.last_press_ms[idx].load(Ordering::Acquire);
+        let window = self.debounce_duration_ms.load(Ordering::Relaxed);
+        if last_time != 0 && now_ms.saturating_sub(last_time) < window {
+            return false;
+        }
+
+        self.last_press_ms[idx].store(now_ms, Ordering::Release);
+        true
+    }
+
+    /// Notifies the filter that a key has been physically released (WM_KEYUP / !is_down).
+    ///
+    /// Clears the corresponding bit in `down_bitmap`, allowing the next physical press.
+    #[inline]
+    pub fn notify_key_up(&self, vk_code: u32) {
+        let idx = vk_code as usize;
+        if idx < 256 {
+            let word_idx = idx / 64;
+            let bit_mask = 1u64 << (idx % 64);
+            self.down_bitmap[word_idx].fetch_and(!bit_mask, Ordering::AcqRel);
         }
     }
 
-    /// Clears all recorded keypress timestamps.
+    /// Checks if a key is currently marked as physically held down.
     #[inline]
-    pub fn clear(&mut self) {
-        self.last_press_times = [None; 256];
+    pub fn is_key_down(&self, vk_code: u32) -> bool {
+        let idx = vk_code as usize;
+        if idx < 256 {
+            let word_idx = idx / 64;
+            let bit_mask = 1u64 << (idx % 64);
+            (self.down_bitmap[word_idx].load(Ordering::Acquire) & bit_mask) != 0
+        } else {
+            false
+        }
+    }
+
+    /// Clears all recorded keypress timestamps and key-down states.
+    #[inline]
+    pub fn clear(&self) {
+        for atomic in &self.last_press_ms {
+            atomic.store(0, Ordering::Release);
+        }
+        for atomic in &self.down_bitmap {
+            atomic.store(0, Ordering::Release);
+        }
     }
 
     /// Returns the current debounce window duration.
     #[inline]
     pub fn debounce_duration(&self) -> Duration {
-        self.debounce_duration
+        Duration::from_millis(self.debounce_duration_ms.load(Ordering::Relaxed))
     }
 
     /// Updates the debounce window duration.
     #[inline]
-    pub fn set_debounce_duration(&mut self, duration: Duration) {
-        self.debounce_duration = duration;
+    pub fn set_debounce_duration(&self, duration: Duration) {
+        self.debounce_duration_ms
+            .store(duration.as_millis() as u64, Ordering::Relaxed);
     }
 }

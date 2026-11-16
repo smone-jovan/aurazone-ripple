@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use crossbeam_channel::Sender;
-use parking_lot::Mutex;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
 use super::vk_map::{map_vk_to_zone, DebounceFilter, KeyEvent};
@@ -41,7 +40,7 @@ pub struct PollerHandle {
 impl PollerHandle {
     pub fn start(
         sender: Sender<KeyEvent>,
-        debouncer: Arc<Mutex<DebounceFilter>>,
+        debouncer: Arc<DebounceFilter>,
     ) -> Result<Self, crate::hook::HookError> {
         let running = Arc::new(AtomicBool::new(true));
         let thread_running = running.clone();
@@ -50,20 +49,23 @@ impl PollerHandle {
             .name("GetAsyncKeyStatePoller".into())
             .spawn(move || {
                 let mut last_states = [false; 256];
-                let mut is_attached = false;
-                let mut poll_cycle: u32 = 0;
+                #[cfg(windows)]
+                let mut attached_hdesk = 0 as windows_sys::Win32::Foundation::HANDLE;
 
                 while thread_running.load(Ordering::Relaxed) {
-                    poll_cycle = poll_cycle.wrapping_add(1);
-                    if !is_attached || (poll_cycle % 100 == 0) {
-                        #[cfg(windows)]
+                    #[cfg(windows)]
+                    if attached_hdesk == 0 as _ {
                         unsafe {
-                            use windows_sys::Win32::System::StationsAndDesktops::{OpenDesktopW, SetThreadDesktop};
+                            use windows_sys::Win32::System::StationsAndDesktops::{
+                                CloseDesktop, OpenDesktopW, SetThreadDesktop,
+                            };
                             let default_name: Vec<u16> = "Default\0".encode_utf16().collect();
                             let hdesk = OpenDesktopW(default_name.as_ptr(), 0, 0, 0x1FF);
                             if hdesk != 0 as _ {
                                 if SetThreadDesktop(hdesk) != 0 {
-                                    is_attached = true;
+                                    attached_hdesk = hdesk;
+                                } else {
+                                    CloseDesktop(hdesk);
                                 }
                             }
                         }
@@ -80,8 +82,7 @@ impl PollerHandle {
 
                         if is_down && !was_down {
                             let now = Instant::now();
-                            let mut deb = debouncer.lock();
-                            if deb.should_process(vk, now) {
+                            if debouncer.should_process(vk, now) {
                                 let zone = map_vk_to_zone(vk);
                                 let _ = sender.try_send(KeyEvent {
                                     zone,
@@ -89,6 +90,8 @@ impl PollerHandle {
                                     timestamp: now,
                                 });
                             }
+                        } else if !is_down && was_down {
+                            debouncer.notify_key_up(vk);
                         }
                         if (vk as usize) < last_states.len() {
                             last_states[vk as usize] = is_down;
@@ -97,6 +100,13 @@ impl PollerHandle {
 
                     // ~83 Hz scan rate (12 ms)
                     std::thread::sleep(Duration::from_millis(12));
+                }
+
+                #[cfg(windows)]
+                if attached_hdesk != 0 as _ {
+                    unsafe {
+                        windows_sys::Win32::System::StationsAndDesktops::CloseDesktop(attached_hdesk);
+                    }
                 }
             })
             .map_err(crate::hook::HookError::ThreadSpawnFailed)?;

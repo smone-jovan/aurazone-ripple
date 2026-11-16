@@ -404,16 +404,41 @@ fn test_exhaustive_vk_mapping_boundaries() {
 // ============================================================================
 #[test]
 fn test_debounce_filter_zero_allocation_and_sliding_window() {
-    let mut filter = DebounceFilter::new(DEBOUNCE_WINDOW_MS);
+    let filter = DebounceFilter::new(DEBOUNCE_WINDOW_MS);
     assert_eq!(filter.debounce_duration(), Duration::from_millis(60));
 
     let t0 = Instant::now();
     assert!(filter.should_process(0x41, t0)); // 'A' accepted
     assert!(!filter.should_process(0x41, t0 + Duration::from_millis(30))); // 'A' debounced
 
-    // Clear filter resets timestamps
+    // Clear filter resets timestamps and held state
     filter.clear();
     assert!(filter.should_process(0x41, t0 + Duration::from_millis(30))); // Now accepted after clear
+}
+
+#[test]
+fn test_debounce_filter_key_hold_suppression_and_release() {
+    let filter = DebounceFilter::new(DEBOUNCE_WINDOW_MS);
+    let t0 = Instant::now();
+
+    // 1. Initial press of 'W' (0x57) accepted
+    assert!(filter.should_process(0x57, t0));
+    assert!(filter.is_key_down(0x57));
+
+    // 2. Simulated Windows auto-repeat at +30ms, +60ms, +90ms, +150ms while holding key
+    // Even though 150ms > 60ms debounce window, it MUST BE REJECTED because key is held down!
+    assert!(!filter.should_process(0x57, t0 + Duration::from_millis(30)));
+    assert!(!filter.should_process(0x57, t0 + Duration::from_millis(60)));
+    assert!(!filter.should_process(0x57, t0 + Duration::from_millis(90)));
+    assert!(!filter.should_process(0x57, t0 + Duration::from_millis(150)));
+
+    // 3. User releases 'W'
+    filter.notify_key_up(0x57);
+    assert!(!filter.is_key_down(0x57));
+
+    // 4. User presses 'W' again at +180ms -> accepted!
+    assert!(filter.should_process(0x57, t0 + Duration::from_millis(180)));
+    assert!(filter.is_key_down(0x57));
 }
 
 // ============================================================================

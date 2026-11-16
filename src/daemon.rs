@@ -48,6 +48,7 @@ fn file_log(msg: &str) {
 struct DaemonCommandHandler {
     running: Arc<AtomicBool>,
     active: Arc<AtomicBool>,
+    need_reprime: Arc<AtomicBool>,
     config: Arc<RwLock<RippleConfig>>,
     settings_path: PathBuf,
     pipe_name: String,
@@ -69,6 +70,9 @@ impl IpcCommandHandler for DaemonCommandHandler {
             IpcCommand::Toggle => {
                 let was_active = self.active.fetch_xor(true, Ordering::SeqCst);
                 let now_active = !was_active;
+                if now_active {
+                    self.need_reprime.store(true, Ordering::SeqCst);
+                }
                 let resp = IpcResponse::Toggle { active: now_active };
                 (resp.to_protocol_string(), false)
             }
@@ -189,6 +193,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     let handler = Arc::new(DaemonCommandHandler {
         running: Arc::clone(&running),
         active: Arc::clone(&active),
+        need_reprime: Arc::clone(&need_reprime),
         config: Arc::clone(&shared_config),
         settings_path,
         pipe_name: pipe_name.clone(),
@@ -206,9 +211,18 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         .name("AuraZone_GHelperWatcher".to_string())
         .spawn(move || {
             let mut last_seen_mode: Option<i64> = None;
+            let mut last_mtime: Option<std::time::SystemTime> = None;
+
             while ghelper_running.load(Ordering::Relaxed) {
                 thread::sleep(Duration::from_millis(50));
-                if ghelper_path.exists() {
+                if let Ok(metadata) = std::fs::metadata(&ghelper_path) {
+                    if let Ok(mtime) = metadata.modified() {
+                        if Some(mtime) == last_mtime {
+                            // File unchanged: 0 disk reads, 0 JSON parsing allocations
+                            continue;
+                        }
+                        last_mtime = Some(mtime);
+                    }
                     if let Ok(content) = std::fs::read_to_string(&ghelper_path) {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                             if let Some(mode) = json.get("aura_mode").and_then(|v| v.as_i64()) {
@@ -280,9 +294,6 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
 
         // 7a. Drain incoming keystroke events from channel
         while let Ok(event) = rx.try_recv() {
-            let zone_names = ["Zona 0 (Kiri/WASD)", "Zona 1 (Tengah-Kiri)", "Zona 2 (Tengah-Kanan)", "Zona 3 (Kanan/Numpad)"];
-            let z_name = zone_names.get(event.zone).unwrap_or(&"Unknown");
-            log_info!(" -> [KETIK] Terdeteksi di {}! Gelombang merambat...", z_name);
             let color = if cfg.rainbow {
                 advance_rainbow(&mut current_hue)
             } else {
@@ -315,8 +326,10 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
 
     file_log(&format!("8. Exited while loop! running={}", running.load(Ordering::Relaxed)));
 
-    // 8. Graceful shutdown cleanup
-    let _ = device.set_static_uniform([0, 0, 0]);
+    // 8. Graceful shutdown cleanup (only reset LEDs if daemon was actively controlling them)
+    if active.load(Ordering::Acquire) {
+        let _ = device.set_static_uniform([0, 0, 0]);
+    }
     listener.stop();
     server.shutdown();
     drop(mutex);
