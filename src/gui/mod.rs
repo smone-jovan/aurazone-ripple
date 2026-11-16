@@ -14,10 +14,41 @@ use std::time::{Duration, Instant};
 
 use crate::config::{Preset, RippleConfig};
 use crate::hid::MockAuraDevice;
+use crate::patcher::GHelperPatchStatus;
 use crate::physics::{advance_rainbow, RippleEngine};
 use ipc_sync::{DaemonStatusUpdate, GuiIpcCommand, IpcSyncBridge};
 use theme::*;
 use widgets::*;
+
+/// Self-onboarding and integration health state.
+#[derive(Clone, Debug)]
+pub struct OnboardingHealth {
+    pub ghelper_status: GHelperPatchStatus,
+    pub startup_task_installed: bool,
+    pub last_action_message: Option<(String, bool)>,
+}
+
+impl OnboardingHealth {
+    pub fn new() -> Self {
+        let mut s = Self {
+            ghelper_status: GHelperPatchStatus::NotFound,
+            startup_task_installed: false,
+            last_action_message: None,
+        };
+        s.refresh();
+        s
+    }
+
+    pub fn refresh(&mut self) {
+        self.ghelper_status = crate::patcher::check_ghelper_patch_state();
+        self.startup_task_installed = crate::patcher::is_startup_task_installed();
+    }
+
+    pub fn needs_attention(&self) -> bool {
+        !matches!(self.ghelper_status, GHelperPatchStatus::Patched(_))
+            || !self.startup_task_installed
+    }
+}
 
 /// Main GUI Application state.
 pub struct AuraGuiApp {
@@ -40,6 +71,9 @@ pub struct AuraGuiApp {
     pub mock_engine: RippleEngine,
     pub mock_device: MockAuraDevice,
     pub current_hue: f32,
+
+    // Self-onboarding health & 1-click integration
+    pub onboarding_health: OnboardingHealth,
 }
 
 impl AuraGuiApp {
@@ -68,6 +102,7 @@ impl AuraGuiApp {
         let preview_zones = [u32_base; 8];
 
         let ipc_bridge = Some(IpcSyncBridge::spawn());
+        let onboarding_health = OnboardingHealth::new();
 
         Self {
             config,
@@ -85,6 +120,7 @@ impl AuraGuiApp {
             mock_engine: RippleEngine::new(),
             mock_device: MockAuraDevice::new(),
             current_hue: 0.0,
+            onboarding_health,
         }
     }
 
@@ -255,6 +291,143 @@ impl eframe::App for AuraGuiApp {
                 });
 
                 ui.add_space(12.0);
+
+                // Self-Onboarding Banner (shown only when setup actions are needed)
+                if self.onboarding_health.needs_attention() {
+                    egui::Frame {
+                        fill: Color32::from_rgb(26, 22, 16),
+                        rounding: Rounding::same(6.0),
+                        stroke: Stroke::new(1.0_f32, COLOR_VOLCANO_ORANGE),
+                        inner_margin: Margin::same(12.0),
+                        ..Default::default()
+                    }
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("⚡ FIRST-RUN SYSTEM INTEGRATION")
+                                    .color(COLOR_VOLCANO_ORANGE)
+                                    .size(13.0)
+                                    .strong(),
+                            );
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui
+                                    .button(egui::RichText::new("🔄 Re-check").color(COLOR_TEXT_ICE).size(11.0))
+                                    .clicked()
+                                {
+                                    self.onboarding_health.refresh();
+                                }
+                            });
+                        });
+                        ui.label(
+                            egui::RichText::new("One-click setup for seamless G-Helper synchronization and background autostart.")
+                                .color(COLOR_TEXT_MUTED)
+                                .size(10.0),
+                        );
+                        ui.add_space(8.0);
+
+                        // 1. G-Helper Integration Check
+                        match &self.onboarding_health.ghelper_status.clone() {
+                            GHelperPatchStatus::NeedsPatch(path) => {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("• G-Helper installed but missing Ripple patch:")
+                                            .color(COLOR_TEXT_ICE)
+                                            .size(11.0),
+                                    );
+                                    let patch_btn = egui::Button::new(
+                                        egui::RichText::new("🔧 Patch & Restart G-Helper (1-Click)")
+                                            .color(Color32::BLACK)
+                                            .strong()
+                                            .size(11.0),
+                                    )
+                                    .fill(COLOR_VOLCANO_ORANGE);
+
+                                    if ui.add(patch_btn).clicked() {
+                                        match crate::patcher::patch_ghelper_file(path) {
+                                            Ok(_) => {
+                                                self.onboarding_health.last_action_message = Some((
+                                                    "G-Helper successfully patched & restarted with Ripple mode enabled!".into(),
+                                                    false,
+                                                ));
+                                                self.onboarding_health.refresh();
+                                            }
+                                            Err(e) => {
+                                                self.onboarding_health.last_action_message = Some((
+                                                    format!("Failed to patch G-Helper: {}", e),
+                                                    true,
+                                                ));
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                            GHelperPatchStatus::NotFound => {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("• G-Helper executable not found at default locations.")
+                                            .color(COLOR_TEXT_MUTED)
+                                            .size(11.0),
+                                    );
+                                });
+                            }
+                            GHelperPatchStatus::Patched(_) => {
+                                // Already patched
+                            }
+                            GHelperPatchStatus::Error(e) => {
+                                ui.label(
+                                    egui::RichText::new(format!("• G-Helper check error: {}", e))
+                                        .color(COLOR_VOLCANO_ORANGE)
+                                        .size(11.0),
+                                );
+                            }
+                        }
+
+                        // 2. Windows Logon Instant Startup Task Check
+                        if !self.onboarding_health.startup_task_installed {
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("• Run quietly in background when Windows logs on:")
+                                        .color(COLOR_TEXT_ICE)
+                                        .size(11.0),
+                                );
+                                let autostart_btn = egui::Button::new(
+                                    egui::RichText::new("🚀 Enable Instant Autostart Task")
+                                        .color(Color32::BLACK)
+                                        .strong()
+                                        .size(11.0),
+                                )
+                                .fill(COLOR_NEON_CYAN);
+
+                                if ui.add(autostart_btn).clicked() {
+                                    match crate::patcher::install_startup_task() {
+                                        Ok(_) => {
+                                            self.onboarding_health.last_action_message = Some((
+                                                "Instant Startup Task created! AuraZoneRipple will auto-start on logon.".into(),
+                                                false,
+                                            ));
+                                            self.onboarding_health.refresh();
+                                        }
+                                        Err(e) => {
+                                            self.onboarding_health.last_action_message = Some((
+                                                format!("Failed to create Task: {}", e),
+                                                true,
+                                            ));
+                                        }
+                                    }
+                                }
+                            });
+                        }
+
+                        if let Some((msg, is_err)) = &self.onboarding_health.last_action_message {
+                            ui.add_space(6.0);
+                            let color = if *is_err { COLOR_VOLCANO_ORANGE } else { COLOR_MATRIX_GREEN };
+                            ui.label(egui::RichText::new(msg).color(color).size(11.0).strong());
+                        }
+                    });
+
+                    ui.add_space(12.0);
+                }
 
                 // Section 1: Live Visualizer Card
                 egui::Frame {
@@ -474,5 +647,18 @@ mod tests {
         app.apply_preset(Preset::Volcano);
         assert_eq!(app.config.preset, Preset::Volcano);
         assert_eq!(app.config.color_ripple, [255, 60, 0]);
+    }
+
+    #[test]
+    fn test_onboarding_health_initialization() {
+        let health = OnboardingHealth::new();
+        let _ = health.needs_attention();
+        assert!(matches!(
+            health.ghelper_status,
+            GHelperPatchStatus::Patched(_)
+                | GHelperPatchStatus::NeedsPatch(_)
+                | GHelperPatchStatus::NotFound
+                | GHelperPatchStatus::Error(_)
+        ));
     }
 }

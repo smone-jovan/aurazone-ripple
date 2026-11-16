@@ -365,6 +365,133 @@ pub fn unpatch_ghelper_file(path: &Path) -> Result<(), PatchError> {
     Ok(())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GHelperPatchStatus {
+    Patched(PathBuf),
+    NeedsPatch(PathBuf),
+    NotFound,
+    Error(String),
+}
+
+/// Inspects GHelper.exe on disk to determine whether it has been patched.
+pub fn check_ghelper_patch_state() -> GHelperPatchStatus {
+    let path = match find_ghelper_exe_path() {
+        Some(p) => p,
+        None => return GHelperPatchStatus::NotFound,
+    };
+
+    let content = match std::fs::read(&path) {
+        Ok(c) => c,
+        Err(e) => return GHelperPatchStatus::Error(format!("Failed to read {}: {}", path.display(), e)),
+    };
+
+    let mut patched_branch = TARGET_SIGNATURE;
+    patched_branch[..3].copy_from_slice(&PATCHED_BYTES);
+    let is_branch_patched = content.windows(patched_branch.len()).any(|w| w == patched_branch);
+
+    let mut patched_timer = TIMER_WRITE_SIGNATURE;
+    patched_timer[6..14].copy_from_slice(&TIMER_100_MS);
+    let is_timer_patched = content.windows(patched_timer.len()).any(|w| w == patched_timer);
+
+    if is_branch_patched && is_timer_patched {
+        GHelperPatchStatus::Patched(path)
+    } else {
+        GHelperPatchStatus::NeedsPatch(path)
+    }
+}
+
+/// Checks if the Windows Logon Scheduled Task for AuraZoneRipple is registered.
+pub fn is_startup_task_installed() -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        std::process::Command::new("schtasks")
+            .args(["/Query", "/TN", "AuraZoneRipple"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// Registers the Windows Logon Instant Startup Task silently in Task Scheduler.
+pub fn install_startup_task() -> Result<(), String> {
+    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_str = current_exe.to_str().ok_or("Invalid executable path")?;
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let output = std::process::Command::new("schtasks")
+            .args([
+                "/Create", "/F",
+                "/TN", "AuraZoneRipple",
+                "/SC", "ONLOGON",
+                "/TR", &format!("\"{}\" --daemon", exe_str),
+                "/RL", "HIGHEST",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        // Fallback without /RL HIGHEST if not running with Administrator privileges
+        let fallback = std::process::Command::new("schtasks")
+            .args([
+                "/Create", "/F",
+                "/TN", "AuraZoneRipple",
+                "/SC", "ONLOGON",
+                "/TR", &format!("\"{}\" --daemon", exe_str),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if fallback.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(())
+    }
+}
+
+/// Deletes the Windows Logon Startup Task from Task Scheduler.
+pub fn uninstall_startup_task() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let output = std::process::Command::new("schtasks")
+            .args(["/Delete", "/TN", "AuraZoneRipple", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
