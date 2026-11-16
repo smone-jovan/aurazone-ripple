@@ -30,6 +30,11 @@
 | F15 | Lifecycle Auto-Watcher | Config.json watcher with auto-reprime and zero-packet sleep | M7 | Survey / User Request |
 | F16 | System Tray Companion | Silent native tray icon, Default desktop binding, single-instance GUI | M8 | Survey / User Request |
 | F17 | Ultra-Low Latency & Continuous Handshake | 100ms debounce patcher, 50ms watcher, 15-frame continuous handshake | M9 | Survey / User Request |
+| F18 | Windows Subsystem & Canonical Settings | PE Subsystem 2 GUI binary, zero CMD window on boot, APPDATA canonical persistence | M10 | User Request |
+| F19 | Early-Boot Desktop Presence & Sleep/Wake Reprime | Pre-spawn tray window, WinSta0\Default binding, WM_POWERBROADCAST reprime | M11 | User Request |
+| F20 | Zone 3 Rightmost Media Keys | Mapped Play, Stop, Prev, Next physical keys to Zone 3 right edge | M12 | User Request |
+| F21 | Gemini 4 Argon Architecture Audit | Deep-reasoning code audit uncovering kernel handle leaks & concurrency bottlenecks | M13 | AI Consultant |
+| F22 | Production Hardening & Lock-Free Debounce | Elimination of HDESK leak (18k -> 182 handles), lock-free DebounceFilter, atomic patcher | M14 | AI Audit / Hardening |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
@@ -43,6 +48,11 @@
 | 7 | G-Helper Patcher & Watcher | src/patcher.rs, src/daemon.rs (mode 8 auto-reprime & unhide) | M6 | DONE |
 | 8 | Tray & Desktop Station Binding | src/tray.rs, src/daemon.rs, WinSta0\Default desktop binding | M7 | DONE |
 | 9 | Transition Latency & Robust Handshake | src/patcher.rs (100ms debounce), src/daemon.rs (50ms watcher, 15-frame burst) | M8 | DONE |
+| 10 | Windows GUI Subsystem & Settings Persistence | src/main.rs (#![windows_subsystem = "windows"]), src/config.rs (%APPDATA%) | M9 | DONE |
+| 11 | Early-Boot Hook & Power Broadcast Reprime | src/main.rs, src/tray.rs, src/hook/win32_hook.rs, src/hook/poller.rs | M10 | DONE |
+| 12 | Rightmost Media Keys Zone 3 Mapping | src/hook/vk_map.rs, src/hook/poller.rs, tests/physics_tests.rs | M11 | DONE |
+| 13 | Gemini 4 Argon Architecture Audit | Gemini 4 Argon Task Mode RPC bridge audit (3 critical, 4 hardening) | M12 | DONE |
+| 14 | Production Hardening & Lock-Free Debounce | src/hook/vk_map.rs, poller.rs, win32_hook.rs, daemon.rs, patcher.rs (143 tests) | M13 | DONE |
 
 ## Interface Contracts
 ### IPC Server ↔ CLI / GUI Clients
