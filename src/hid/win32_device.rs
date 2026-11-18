@@ -1,7 +1,8 @@
-//! Win32 Direct HID device implementation for ASUS ROG Aura Col05 controller.
+//! Win32 Direct HID device implementation for ASUS ROG Aura Col05 controller
+//! with automatic stale-handle recovery and Direct Mode (0xBC) re-priming.
 
 use std::ffi::c_void;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
 };
@@ -30,6 +31,9 @@ const AURA_USAGE_PAGE: u16 = 0xFF31;
 const AURA_COL05_USAGE: u16 = 0x0079;
 const EXPECTED_FEATURE_LEN: u16 = 64;
 
+/// Minimum interval between USB HID reconnection attempts during power transients.
+const RECONNECT_COOLDOWN: Duration = Duration::from_millis(250);
+
 /// Known physical device path on ASUS ROG Strix G513RC
 pub const KNOWN_COL05_DEVICE_PATH: &str =
     r"\\?\HID#VID_0B05&PID_19B6&Col05#7&2d1c04e0&0&0004#{4d1e55b2-f16f-11cf-88cb-001111000030}";
@@ -38,6 +42,7 @@ pub const KNOWN_COL05_DEVICE_PATH: &str =
 pub struct Win32AuraDevice {
     handle: HANDLE,
     path: String,
+    last_reconnect_attempt: Option<Instant>,
 }
 
 // Raw Windows HANDLE is !Send and !Sync by default.
@@ -54,7 +59,7 @@ impl Win32AuraDevice {
 
         // Send initial handshake primer to switch micro-controller to direct lighting mode
         let handshake = encode_handshake();
-        device.send_feature(&handshake)?;
+        device.send_feature_raw(&handshake)?;
         std::thread::sleep(Duration::from_millis(50));
 
         Ok(device)
@@ -227,8 +232,7 @@ impl Win32AuraDevice {
         }
     }
 
-    /// Opens handle to device path with shared read/write mode.
-    pub fn open_by_path(path: &str) -> Result<Self, AuraError> {
+    fn open_raw_handle(path: &str) -> Result<HANDLE, AuraError> {
         let wide_path: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
         unsafe {
             let handle = CreateFileW(
@@ -244,31 +248,86 @@ impl Win32AuraDevice {
             if handle.is_null() || handle == INVALID_HANDLE_VALUE {
                 return Err(AuraError::from(GetLastError()));
             }
-
-            Ok(Self {
-                handle,
-                path: path.to_string(),
-            })
+            Ok(handle)
         }
+    }
+
+    /// Opens handle to device path with shared read/write mode.
+    pub fn open_by_path(path: &str) -> Result<Self, AuraError> {
+        let handle = Self::open_raw_handle(path)?;
+        Ok(Self {
+            handle,
+            path: path.to_string(),
+            last_reconnect_attempt: None,
+        })
     }
 
     /// Returns the active Windows device interface path.
     pub fn device_path(&self) -> &str {
         &self.path
     }
-}
 
-impl AuraDevice for Win32AuraDevice {
-    fn send_feature(&mut self, report: &[u8; 64]) -> Result<(), AuraError> {
+    #[inline]
+    fn send_feature_raw(&mut self, report: &[u8; 64]) -> Result<(), AuraError> {
+        if self.handle.is_null() || self.handle == INVALID_HANDLE_VALUE {
+            return Err(AuraError::DeviceNotFound);
+        }
         unsafe {
             let ok = HidD_SetFeature(self.handle, report.as_ptr() as *const c_void, 64);
-
             if ok == 0 {
                 let err = GetLastError();
                 return Err(AuraError::from(err));
             }
-
             Ok(())
+        }
+    }
+
+    /// Closes a stale HID handle, re-opens the Col05 endpoint (with 250ms backoff),
+    /// and immediately re-primes Direct Mode (0xBC).
+    pub fn try_reconnect(&mut self) -> Result<(), AuraError> {
+        let now = Instant::now();
+        if let Some(last) = self.last_reconnect_attempt {
+            if now.duration_since(last) < RECONNECT_COOLDOWN {
+                return Err(AuraError::DeviceNotFound);
+            }
+        }
+        self.last_reconnect_attempt = Some(now);
+
+        if !self.handle.is_null() && self.handle != INVALID_HANDLE_VALUE {
+            unsafe {
+                CloseHandle(self.handle);
+            }
+            self.handle = std::ptr::null_mut();
+        }
+
+        // 1. Try cached device path first; fallback to full SetupDi re-enumeration
+        let new_handle = match Self::open_raw_handle(&self.path) {
+            Ok(h) => h,
+            Err(_) => {
+                let new_path = Self::find_col05_path()?;
+                let h = Self::open_raw_handle(&new_path)?;
+                self.path = new_path;
+                h
+            }
+        };
+
+        self.handle = new_handle;
+
+        // 2. Re-prime microcontroller into Direct Mode 0xBC
+        let handshake = encode_handshake();
+        self.send_feature_raw(&handshake)?;
+        Ok(())
+    }
+}
+
+impl AuraDevice for Win32AuraDevice {
+    fn send_feature(&mut self, report: &[u8; 64]) -> Result<(), AuraError> {
+        match self.send_feature_raw(report) {
+            Ok(()) => Ok(()),
+            Err(_first_err) => {
+                self.try_reconnect()?;
+                self.send_feature_raw(report)
+            }
         }
     }
 

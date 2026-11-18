@@ -441,6 +441,25 @@ fn test_debounce_filter_key_hold_suppression_and_release() {
     assert!(filter.is_key_down(0x57));
 }
 
+#[test]
+fn test_debounce_filter_self_healing_lost_keyup() {
+    let filter = DebounceFilter::new(DEBOUNCE_WINDOW_MS);
+    let t0 = Instant::now();
+
+    // 1. Initial press of 'W' (0x57) accepted and latched
+    assert!(filter.should_process(0x57, t0));
+    assert!(filter.is_key_down(0x57));
+
+    // 2. Simulated key-hold within 1500ms lease: rejected as auto-repeat
+    assert!(!filter.should_process(0x57, t0 + Duration::from_millis(500)));
+    assert!(!filter.should_process(0x57, t0 + Duration::from_millis(1400)));
+
+    // 3. Lost WM_KEYUP scenario: after > 1500ms (e.g. 1501ms) without active hold lease refresh,
+    // self-healing triggers and the new keystroke is ACCEPTED!
+    assert!(filter.should_process(0x57, t0 + Duration::from_millis(1501)));
+    assert!(filter.is_key_down(0x57));
+}
+
 // ============================================================================
 // 15. Mock KeyboardListener Channel Flow
 // ============================================================================

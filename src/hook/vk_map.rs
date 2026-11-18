@@ -12,6 +12,10 @@ use std::time::{Duration, Instant};
 /// Standard debounce window for keyboard input filtering (60 milliseconds).
 pub const DEBOUNCE_WINDOW_MS: u64 = 60;
 
+/// Maximum duration (in milliseconds) a key-down bit can remain latched without
+/// physical hold confirmation from the poller/hook before self-healing a lost WM_KEYUP.
+pub const MAX_STUCK_KEY_LEASE_MS: u64 = 1500;
+
 /// Represents a captured and filtered keyboard input event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyEvent {
@@ -124,12 +128,13 @@ pub fn map_vk_to_zone(vk_code: u32) -> usize {
 }
 
 /// High-performance lock-free zero-allocation per-key sliding window debounce filter
-/// with hardware key-hold auto-repeat suppression.
+/// with hardware key-hold auto-repeat suppression and self-healing stuck-bit recovery.
 ///
-/// Uses an inline 256-element array of `AtomicU64` timestamps and a 256-bit `AtomicU64` bitmap
+/// Uses inline 256-element arrays of `AtomicU64` timestamps and a 256-bit `AtomicU64` bitmap
 /// to track pressed keys, completely eliminating mutex lock contention and heap allocations.
 pub struct DebounceFilter {
     last_press_ms: [AtomicU64; 256],
+    last_hold_seen_ms: [AtomicU64; 256],
     down_bitmap: [AtomicU64; 4],
     debounce_duration_ms: AtomicU64,
     epoch: Instant,
@@ -157,17 +162,29 @@ impl DebounceFilter {
     pub fn new(debounce_ms: u64) -> Self {
         Self {
             last_press_ms: std::array::from_fn(|_| AtomicU64::new(0)),
+            last_hold_seen_ms: std::array::from_fn(|_| AtomicU64::new(0)),
             down_bitmap: std::array::from_fn(|_| AtomicU64::new(0)),
             debounce_duration_ms: AtomicU64::new(debounce_ms),
             epoch: Instant::now(),
         }
     }
 
+    #[inline]
+    fn elapsed_ms(&self, now: Instant) -> u64 {
+        if now >= self.epoch {
+            now.duration_since(self.epoch).as_millis() as u64 + 1
+        } else {
+            1
+        }
+    }
+
     /// Evaluates whether a virtual keypress event should be processed or filtered out.
     ///
-    /// 1. Auto-repeat suppression: If the key is already marked down in `down_bitmap`,
-    ///    it is immediately filtered out (returns `false`), preventing continuous ripple
-    ///    spam when holding keys (e.g. 'W' in games).
+    /// 1. Auto-repeat suppression with self-healing lease check: If the key is already marked
+    ///    down in `down_bitmap` AND its hold lease (`last_hold_seen_ms`) was refreshed within
+    ///    `MAX_STUCK_KEY_LEASE_MS`, it is filtered out (returns `false`). If the lease expired
+    ///    (meaning `WM_KEYUP` was lost during a lag spike or Alt-Tab and the key is not actively
+    ///    held), it self-heals and proceeds.
     /// 2. Sliding window debounce: If the elapsed time since last press is shorter than the
     ///    debounce window, it is filtered out (returns `false`).
     ///
@@ -180,32 +197,47 @@ impl DebounceFilter {
             return true;
         }
 
+        let now_ms = self.elapsed_ms(now);
+
         // 1. Hardware key-hold auto-repeat suppression via 256-bit atomic bitmap
         let word_idx = idx / 64;
         let bit_mask = 1u64 << (idx % 64);
         let prev_bits = self.down_bitmap[word_idx].fetch_or(bit_mask, Ordering::AcqRel);
         if (prev_bits & bit_mask) != 0 {
-            // Key is already held down! Discard auto-repeat keystrokes
-            return false;
+            let last_hold = self.last_hold_seen_ms[idx].load(Ordering::Acquire);
+            if last_hold != 0 && now_ms.saturating_sub(last_hold) <= MAX_STUCK_KEY_LEASE_MS {
+                // Key is genuinely held down! Discard auto-repeat keystrokes
+                return false;
+            }
+            // Self-heal: bit was stuck from a lost WM_KEYUP > 1500ms ago! Fall through.
         }
 
         // 2. Sliding window debounce
-        let now_ms = if now >= self.epoch {
-            now.duration_since(self.epoch).as_millis() as u64 + 1
-        } else {
-            1
-        };
-
         let last_time = self.last_press_ms[idx].load(Ordering::Acquire);
         let window = self.debounce_duration_ms.load(Ordering::Relaxed);
         if last_time != 0 && now_ms.saturating_sub(last_time) < window {
-            // Roll back the down-bit because the keystroke was rejected by the sliding window debounce
-            self.down_bitmap[word_idx].fetch_and(!bit_mask, Ordering::AcqRel);
+            // Roll back the down-bit if this was a fresh transition rejected by the sliding window debounce
+            if (prev_bits & bit_mask) == 0 {
+                self.down_bitmap[word_idx].fetch_and(!bit_mask, Ordering::AcqRel);
+            }
             return false;
         }
 
         self.last_press_ms[idx].store(now_ms, Ordering::Release);
+        self.last_hold_seen_ms[idx].store(now_ms, Ordering::Release);
         true
+    }
+
+    /// Refreshes the key-hold lease timestamp while the key is verified physically held down.
+    /// Prevents self-healing from falsely re-triggering ripples during long continuous holds
+    /// (e.g. holding 'W' to run forward in games for > 1.5 seconds).
+    #[inline]
+    pub fn refresh_hold_lease(&self, vk_code: u32, now: Instant) {
+        let idx = vk_code as usize;
+        if idx < 256 {
+            let now_ms = self.elapsed_ms(now);
+            self.last_hold_seen_ms[idx].store(now_ms, Ordering::Release);
+        }
     }
 
     /// Notifies the filter that a key has been physically released (WM_KEYUP / !is_down).
@@ -218,6 +250,7 @@ impl DebounceFilter {
             let word_idx = idx / 64;
             let bit_mask = 1u64 << (idx % 64);
             self.down_bitmap[word_idx].fetch_and(!bit_mask, Ordering::AcqRel);
+            self.last_hold_seen_ms[idx].store(0, Ordering::Release);
         }
     }
 
@@ -238,6 +271,9 @@ impl DebounceFilter {
     #[inline]
     pub fn clear(&self) {
         for atomic in &self.last_press_ms {
+            atomic.store(0, Ordering::Release);
+        }
+        for atomic in &self.last_hold_seen_ms {
             atomic.store(0, Ordering::Release);
         }
         for atomic in &self.down_bitmap {

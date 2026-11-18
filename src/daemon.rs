@@ -98,6 +98,11 @@ impl IpcCommandHandler for DaemonCommandHandler {
 /// Runs the AuraZoneRipple background daemon.
 pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     file_log("1. Starting run_daemon...");
+
+    // 0. Boost process priority (ABOVE_NORMAL), disable Windows 11 EcoQoS, and engage 1ms timer
+    crate::qos::boost_process_for_gaming();
+    let _daemon_timer_guard = crate::qos::HighResTimerGuard::new(1);
+
     // 1. Acquire single-instance mutex
     let mutex = match SingleInstanceMutex::acquire() {
         Ok(m) => {
@@ -114,7 +119,10 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     // 2. Resolve settings path & load initial configuration
     let settings_path = crate::config::get_canonical_settings_path();
     let (initial_config, _) = RippleConfig::load_or_recover(&settings_path);
-    file_log(&format!("3. Settings loaded from {:?}, preset={:?}", settings_path, initial_config.preset));
+    file_log(&format!(
+        "3. Settings loaded from {:?}, preset={:?}",
+        settings_path, initial_config.preset
+    ));
     let shared_config = Arc::new(RwLock::new(initial_config));
 
     file_log("3a. Opening Aura HID device...");
@@ -129,7 +137,10 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
                 Box::new(dev)
             }
             Err(e) => {
-                file_log(&format!("3b. Win32AuraDevice::open failed: {:?}, fallback to mock.", e));
+                file_log(&format!(
+                    "3b. Win32AuraDevice::open failed: {:?}, fallback to mock.",
+                    e
+                ));
                 log_err!(
                     "Warning: Failed to open physical Aura device ({:?}), falling back to mock device.",
                     e
@@ -241,7 +252,10 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
                                         // G-Helper switched to another mode (Static, Breathe, Color Cycle, etc.)
                                         if ghelper_active.load(Ordering::SeqCst) {
                                             ghelper_active.store(false, Ordering::SeqCst);
-                                            log_info!("[G-Helper] Mode {} aktif -> AuraZone Auto-Pause.", mode);
+                                            log_info!(
+                                                "[G-Helper] Mode {} aktif -> AuraZone Auto-Pause.",
+                                                mode
+                                            );
                                         }
                                     }
                                 }
@@ -253,6 +267,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         });
 
     // 7. 50 FPS Superposition Engine Loop
+    crate::qos::boost_input_thread(false);
     let mut engine = RippleEngine::new();
     let mut current_hue = 0.0f32;
     let cascade = Duration::from_millis(LIGHTBAR_CASCADE_DELAY_MS);
@@ -287,7 +302,9 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         if reprime_countdown > 0 {
             reprime_countdown -= 1;
             let handshake = crate::hid::encode_handshake();
-            let _ = device.send_feature(&handshake);
+            if device.send_feature(&handshake).is_err() {
+                need_reprime.store(true, Ordering::Relaxed);
+            }
         }
         was_active = true;
 
@@ -318,8 +335,10 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
             ui_preview[z].store(u32_val, Ordering::Relaxed);
         }
 
-        // 7d. Dispatch colors to physical / mock Aura device
-        let _ = device.apply_zones(&zone_colors);
+        // 7d. Dispatch colors to physical / mock Aura device with self-healing reprime trigger
+        if device.apply_zones(&zone_colors).is_err() {
+            need_reprime.store(true, Ordering::Relaxed);
+        }
 
         // 7e. Maintain 50 FPS frame timing
         let elapsed = frame_start.elapsed();
@@ -328,7 +347,10 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    file_log(&format!("8. Exited while loop! running={}", running.load(Ordering::Relaxed)));
+    file_log(&format!(
+        "8. Exited while loop! running={}",
+        running.load(Ordering::Relaxed)
+    ));
 
     // 8. Graceful shutdown cleanup (only reset LEDs if daemon was actively controlling them)
     if active.load(Ordering::Acquire) {

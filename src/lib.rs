@@ -9,6 +9,7 @@ pub mod hook;
 pub mod ipc;
 pub mod patcher;
 pub mod physics;
+pub mod qos;
 pub mod tray;
 
 pub use config::{get_canonical_settings_path, ConfigError, Preset, ProfileData, RippleConfig};
@@ -19,6 +20,7 @@ pub use patcher::{
     ORIGINAL_BYTES, PATCHED_BYTES, TARGET_SIGNATURE, TIMER_100_MS, TIMER_2000_MS,
     TIMER_INIT_SIGNATURE, TIMER_WRITE_SIGNATURE,
 };
+pub use qos::{boost_input_thread, boost_process_for_gaming, HighResTimerGuard};
 pub use gui::run_gui;
 pub use ghelper::{
     get_ghelper_config_path, install_ghelper_binding, read_ghelper_config, restore_static_lighting,

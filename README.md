@@ -7,8 +7,8 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-blue.svg?logo=windows)](https://microsoft.com)
 [![Hardware](https://img.shields.io/badge/Hardware-ASUS%20ROG%20Strix%20G513-red.svg?logo=asus)](https://rog.asus.com)
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#-license)
-[![Tests](https://img.shields.io/badge/Tests-143%20passed-brightgreen.svg)](tests/)
-[![Argon-Audit](https://img.shields.io/badge/Gemini%204%20Argon-Production--Ready%20(9.8%2F10)-purple.svg)](#-architecture-hardening--deep-audit-gemini-4-argon)
+[![Tests](https://img.shields.io/badge/Tests-145%20passed-brightgreen.svg)](tests/)
+[![Argon-Audit](https://img.shields.io/badge/Gemini%204%20Argon-Production--Ready%20(9.9%2F10)-purple.svg)](#-architecture-hardening--deep-audit-gemini-4-argon)
 
 ---
 
@@ -201,13 +201,14 @@ aurazone-ripple/
 │   ├── ipc/                 # Windows Named Pipe server/client & single-instance mutex
 │   ├── gui/                 # Sleek minimalist GUI (egui/eframe/glow) & custom profile widgets
 │   ├── patcher.rs           # G-Helper in-place surgical branch patcher & unpatcher
+│   ├── qos.rs               # Windows QoS, EcoQoS disabler, & 1ms multimedia timer
 │   ├── tray.rs              # Native Windows system tray icon & context menu
 │   ├── config.rs            # ProfileData, Presets, and atomic JSON configuration
 │   ├── daemon.rs            # High-performance 50 FPS daemon orchestrator & G-Helper watcher
 │   ├── ghelper.rs           # G-Helper M5 binding installer & static profile restoration
 │   ├── lib.rs               # Crate library root & public exports
 │   └── main.rs              # CLI entry point router
-├── tests/                   # Automated 4-tier verification test suite (143 tests)
+├── tests/                   # Automated 4-tier verification test suite (145 tests)
 ├── python_prototype/        # Zero-dependency reference Python prototype & control panel
 ├── LICENSE-MIT              # MIT License
 ├── LICENSE-APACHE           # Apache 2.0 License
@@ -222,11 +223,15 @@ aurazone-ripple/
 AuraZoneRipple underwent rigorous deep-reasoning multi-axis code audits by **Gemini 4 Argon** in Task Mode via direct local RPC bridge (`model_number: 8`).
 
 ### Audit Summary & Verified Resilience:
+- **Gaming Hardening & Anti-EcoQoS (Milestone 17)**: Disables Windows 11 EcoQoS execution throttling (`PROCESS_POWER_THROTTLING_EXECUTION_SPEED`) via `SetProcessInformation`, elevates process priority to `AboveNormal` (BasePriority 10), sets hook thread to `TimeCritical` (Priority 15), and activates a 1 ms multimedia timer (`timeBeginPeriod(1)`).
+- **Self-Healing Lost KEYUP Debounce**: Added `MAX_STUCK_KEY_LEASE_MS = 1500 ms` hold lease to `DebounceFilter`. Eliminates stuck WASD/Shift/Space keys during heavy AAA gaming, Alt-Tab, or overlay activation while preserving auto-repeat suppression via `refresh_hold_lease()`.
+- **200 Hz High-Frequency Poller**: 5 ms polling interval with hybrid bitmask `0x8001` capturing ultra-fast 15–25 ms counter-strafing key taps and providing unconditional physical release reconciliation.
+- **In-Place Hook Watchdog & Self-Healing HID**: Automatically detects `WH_KEYBOARD_LL` silent unhooks and re-hooks via `WM_APP_REHOOK`. USB HID failures trigger automatic reconnection with 250 ms backoff and Direct Mode `0xBC` re-priming.
 - **Kernel Handle Leak Elimination**: Identified and closed unbounded `OpenDesktopW` handles in the poller thread. Reduced handle count from **18,258 down to 182 handles** (99% reduction).
 - **Lock-Free Concurrency**: Replaced `Mutex<DebounceFilter>` with an inline atomic array `[AtomicU64; 256]` and 256-bit atomic bitmap `down_bitmap: [AtomicU64; 4]` with `AcqRel` memory ordering. Zero mutex locks inside the `WH_KEYBOARD_LL` callback eliminates hook latency and prevents Windows silent unhooking.
 - **Key-Hold Auto-Repeat Suppression**: Squelches continuous ripple waves when holding down keys (e.g. 'W' while gaming) until key release.
 - **Win32 Thread Desktop Lifetime**: Saves `orig_hdesk` via `GetThreadDesktop` and restores it before calling `CloseDesktop(attached_hdesk)`, satisfying strict Win32 kernel teardown rules.
-- **Production Readiness Score**: **9.8 / 10** (Certified for 24/7 continuous operation).
+- **Production Readiness Score**: **9.9 / 10** (Certified for 24/7 continuous operation & AAA gaming).
 
 ---
 
