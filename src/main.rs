@@ -111,6 +111,10 @@ pub struct CliArgs {
     /// Custom path to GHelper.exe (optional override)
     #[arg(long = "ghelper-path")]
     pub ghelper_path: Option<std::path::PathBuf>,
+
+    /// Install elevated Task Scheduler gaming daemon entry (requires Admin/UAC)
+    #[arg(long = "install-elevated-task")]
+    pub install_elevated_task: bool,
 }
 
 fn spawn_daemon_background(mock: bool) {
@@ -157,6 +161,7 @@ fn main() {
         || args.patch_ghelper
         || args.unpatch_ghelper
         || args.install_ghelper
+        || args.install_elevated_task
         || args.profile.is_some()
     {
         attach_parent_console();
@@ -279,6 +284,16 @@ fn main() {
             }
             Err(e) => {
                 cli_println(&format!("Error installing G-Helper binding: {}", e));
+                std::process::exit(1);
+            }
+        }
+    } else if args.install_elevated_task {
+        match aura_zone_ripple::patcher::install_elevated_startup_task_direct() {
+            Ok(_) => {
+                cli_println("[OK] Elevated Gaming Task (AuraZoneRipple) registered and started.");
+            }
+            Err(e) => {
+                cli_println(&format!("Failed to install elevated gaming task: {}", e));
                 std::process::exit(1);
             }
         }

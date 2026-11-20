@@ -7,6 +7,9 @@ use std::str::FromStr;
 pub enum IpcCommand {
     Status,
     Toggle,
+    Pause,
+    Resume,
+    Diag,
     Stop,
     Reload,
     Unknown(String),
@@ -20,6 +23,9 @@ impl FromStr for IpcCommand {
         let cmd = match trimmed.to_ascii_uppercase().as_str() {
             "STATUS" => IpcCommand::Status,
             "TOGGLE" => IpcCommand::Toggle,
+            "PAUSE" => IpcCommand::Pause,
+            "RESUME" => IpcCommand::Resume,
+            "DIAG" => IpcCommand::Diag,
             "STOP" => IpcCommand::Stop,
             "RELOAD" => IpcCommand::Reload,
             _ => IpcCommand::Unknown(trimmed.to_string()),
@@ -39,6 +45,9 @@ impl IpcCommand {
 pub enum IpcResponse {
     Status { active: bool, preset: String },
     Toggle { active: bool },
+    Pause,
+    Resume,
+    Diag { elevated: bool, raw_input: bool },
     Stop,
     Reload,
     Error(String),
@@ -57,6 +66,12 @@ impl IpcResponse {
                     "OK TOGGLE paused\n".to_string()
                 }
             }
+            IpcResponse::Pause => "OK PAUSE\n".to_string(),
+            IpcResponse::Resume => "OK RESUME\n".to_string(),
+            IpcResponse::Diag {
+                elevated,
+                raw_input,
+            } => format!("OK diag elevated={} raw_input={}\n", elevated, raw_input),
             IpcResponse::Stop => "OK STOP\n".to_string(),
             IpcResponse::Reload => "OK RELOAD\n".to_string(),
             IpcResponse::Error(msg) => format!("ERR: {}\n", msg),
@@ -103,5 +118,20 @@ mod tests {
 
         let resp_err = IpcResponse::Error("Unknown command".to_string());
         assert_eq!(resp_err.to_protocol_string(), "ERR: Unknown command\n");
+
+        assert_eq!(IpcCommand::parse("PAUSE"), IpcCommand::Pause);
+        assert_eq!(IpcCommand::parse("RESUME"), IpcCommand::Resume);
+        assert_eq!(IpcCommand::parse("DIAG"), IpcCommand::Diag);
+
+        assert_eq!(IpcResponse::Pause.to_protocol_string(), "OK PAUSE\n");
+        assert_eq!(IpcResponse::Resume.to_protocol_string(), "OK RESUME\n");
+        assert_eq!(
+            IpcResponse::Diag {
+                elevated: true,
+                raw_input: true
+            }
+            .to_protocol_string(),
+            "OK diag elevated=true raw_input=true\n"
+        );
     }
 }

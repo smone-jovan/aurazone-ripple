@@ -17,6 +17,9 @@ use crate::ipc::{get_pipe_name, send_command_to_pipe};
 pub enum GuiIpcCommand {
     QueryStatus,
     Toggle,
+    Pause,
+    Resume,
+    Diag,
     Reload,
     Stop,
 }
@@ -26,6 +29,9 @@ impl GuiIpcCommand {
         match self {
             GuiIpcCommand::QueryStatus => "STATUS",
             GuiIpcCommand::Toggle => "TOGGLE",
+            GuiIpcCommand::Pause => "PAUSE",
+            GuiIpcCommand::Resume => "RESUME",
+            GuiIpcCommand::Diag => "DIAG",
             GuiIpcCommand::Reload => "RELOAD",
             GuiIpcCommand::Stop => "STOP",
         }
@@ -38,6 +44,8 @@ pub struct DaemonStatusUpdate {
     pub is_connected: bool,
     pub is_running: bool,
     pub is_active: bool,
+    pub is_elevated: bool,
+    pub raw_input_active: bool,
     pub preset_name: String,
     pub raw_response: String,
 }
@@ -48,6 +56,8 @@ impl Default for DaemonStatusUpdate {
             is_connected: false,
             is_running: false,
             is_active: false,
+            is_elevated: false,
+            raw_input_active: false,
             preset_name: "Cyberpunk".to_string(),
             raw_response: String::new(),
         }
@@ -70,10 +80,28 @@ pub fn parse_daemon_response(resp: &str, current: &mut DaemonStatusUpdate) {
                 current.preset_name = val.to_string();
             }
         }
+    } else if trimmed.starts_with("OK diag") {
+        current.is_connected = true;
+        current.is_running = true;
+        for part in trimmed.split_whitespace() {
+            if let Some(val) = part.strip_prefix("elevated=") {
+                current.is_elevated = val == "true";
+            } else if let Some(val) = part.strip_prefix("raw_input=") {
+                current.raw_input_active = val == "true";
+            }
+        }
     } else if trimmed.starts_with("OK TOGGLE") {
         current.is_connected = true;
         current.is_running = true;
         current.is_active = trimmed.contains("active");
+    } else if trimmed.starts_with("OK PAUSE") {
+        current.is_connected = true;
+        current.is_running = true;
+        current.is_active = false;
+    } else if trimmed.starts_with("OK RESUME") {
+        current.is_connected = true;
+        current.is_running = true;
+        current.is_active = true;
     } else if trimmed.starts_with("OK RELOAD") {
         current.is_connected = true;
         current.is_running = true;
@@ -81,6 +109,8 @@ pub fn parse_daemon_response(resp: &str, current: &mut DaemonStatusUpdate) {
         current.is_connected = false;
         current.is_running = false;
         current.is_active = false;
+        current.is_elevated = false;
+        current.raw_input_active = false;
     }
 }
 
@@ -106,10 +136,13 @@ impl IpcSyncBridge {
                 let mut status = DaemonStatusUpdate::default();
                 let pipe_name = get_pipe_name();
 
-                // Initial status inquiry
+                // Initial status & diagnostics inquiry
                 match send_command_to_pipe(&pipe_name, "STATUS") {
                     Ok(resp) => {
                         parse_daemon_response(&resp, &mut status);
+                        if let Ok(diag_resp) = send_command_to_pipe(&pipe_name, "DIAG") {
+                            parse_daemon_response(&diag_resp, &mut status);
+                        }
                         let _ = tx_state.try_send(status.clone());
                     }
                     Err(_) => {
@@ -128,15 +161,22 @@ impl IpcSyncBridge {
                         Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
                     };
 
+                    let was_connected = status.is_connected;
                     match send_command_to_pipe(&pipe_name, cmd_str) {
                         Ok(resp) => {
                             parse_daemon_response(&resp, &mut status);
+                            if !was_connected && status.is_connected && cmd_str != "DIAG" {
+                                if let Ok(diag_resp) = send_command_to_pipe(&pipe_name, "DIAG") {
+                                    parse_daemon_response(&diag_resp, &mut status);
+                                }
+                            }
                             let _ = tx_state.try_send(status.clone());
                         }
                         Err(err) => {
-                            // If daemon pipe is unreachable, update disconnected state
                             status.is_connected = false;
                             status.is_running = false;
+                            status.is_elevated = false;
+                            status.raw_input_active = false;
                             status.raw_response = format!("Pipe unreachable: {}", err);
                             let _ = tx_state.try_send(status.clone());
                         }
@@ -189,6 +229,23 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_daemon_response_diag_pause_resume() {
+        let mut status = DaemonStatusUpdate::default();
+        parse_daemon_response("OK diag elevated=true raw_input=true\n", &mut status);
+        assert!(status.is_connected);
+        assert!(status.is_elevated);
+        assert!(status.raw_input_active);
+
+        parse_daemon_response("OK PAUSE\n", &mut status);
+        assert!(status.is_connected);
+        assert!(!status.is_active);
+
+        parse_daemon_response("OK RESUME\n", &mut status);
+        assert!(status.is_connected);
+        assert!(status.is_active);
+    }
+
+    #[test]
     fn test_parse_daemon_response_toggle_and_stop() {
         let mut status = DaemonStatusUpdate::default();
         parse_daemon_response("OK TOGGLE active\n", &mut status);
@@ -203,5 +260,6 @@ mod tests {
         assert!(!status.is_connected);
         assert!(!status.is_running);
         assert!(!status.is_active);
+        assert!(!status.is_elevated);
     }
 }

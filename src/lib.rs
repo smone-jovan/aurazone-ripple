@@ -20,7 +20,7 @@ pub use patcher::{
     ORIGINAL_BYTES, PATCHED_BYTES, TARGET_SIGNATURE, TIMER_100_MS, TIMER_2000_MS,
     TIMER_INIT_SIGNATURE, TIMER_WRITE_SIGNATURE,
 };
-pub use qos::{boost_input_thread, boost_process_for_gaming, HighResTimerGuard};
+pub use qos::{boost_input_thread, boost_process_for_gaming, is_process_elevated, HighResTimerGuard};
 pub use gui::run_gui;
 pub use ghelper::{
     get_ghelper_config_path, install_ghelper_binding, read_ghelper_config, restore_static_lighting,
@@ -28,20 +28,21 @@ pub use ghelper::{
 };
 pub use hid::{AuraDevice, AuraError, MockAuraDevice, SharedMockAuraDevice, Win32AuraDevice};
 pub use hook::{
-    map_vk_to_zone, DebounceFilter, HookError, KeyEvent, KeyboardHookHandle, KeyboardListener,
-    PollerHandle, DEBOUNCE_WINDOW_MS, POLLED_KEYS,
+    is_raw_input_active, map_vk_to_zone, normalize_raw_vk, DebounceFilter, HookError, KeyEvent,
+    KeyboardHookHandle, KeyboardListener, PollerHandle, RawInputHandle, DEBOUNCE_WINDOW_MS,
+    POLLED_KEYS,
 };
 pub use ipc::{
     get_pipe_name, send_command_to_pipe, send_ipc_command, wake_up_pipe, IpcCommand,
     IpcCommandHandler, IpcResponse, MutexError, NamedPipeServer, SingleInstanceMutex,
 };
 pub use physics::{
-    advance_rainbow, blend_colors, calculate_zone_delay, calculate_zone_intensity,
-    calculate_zone_intensity_full, hsv_norm_to_rgb, hsv_to_rgb, linear_distance_attenuation,
-    run_engine_loop, saturating_add_rgb, two_phase_easing, ActiveRipple, RippleEngine,
-    ATTENUATION_FACTOR, ATTENUATION_PER_ZONE, DEFAULT_RIPPLE_DURATION_MS, DEFAULT_SPREAD_MS,
-    DEFAULT_WAVE_DURATION_MS, FRAME_INTERVAL_MS, LIGHTBAR_CASCADE_DELAY_MS,
-    LIGHTBAR_INTENSITY_SCALE, MAX_ACTIVE_RIPPLES, RAINBOW_HUE_STEP,
+    advance_rainbow, advance_rainbow_by, blend_colors, calculate_zone_delay,
+    calculate_zone_intensity, calculate_zone_intensity_full, hsv_norm_to_rgb, hsv_to_rgb,
+    linear_distance_attenuation, run_engine_loop, saturating_add_rgb, scale_rgb_brightness,
+    two_phase_easing, ActiveRipple, RippleEngine, ATTENUATION_FACTOR, ATTENUATION_PER_ZONE,
+    DEFAULT_RIPPLE_DURATION_MS, DEFAULT_SPREAD_MS, DEFAULT_WAVE_DURATION_MS, FRAME_INTERVAL_MS,
+    LIGHTBAR_CASCADE_DELAY_MS, LIGHTBAR_INTENSITY_SCALE, MAX_ACTIVE_RIPPLES, RAINBOW_HUE_STEP,
 };
 
 // Re-exports and dependency roots for downstream milestones (M2: crossbeam, M3: serde)

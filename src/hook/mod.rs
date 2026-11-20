@@ -1,6 +1,7 @@
 //! Keyboard input capture subsystem: WH_KEYBOARD_LL hook, UIPI fallback poller, and 4-zone mapping.
 
 pub mod poller;
+pub mod raw_input;
 pub mod vk_map;
 pub mod win32_hook;
 
@@ -9,6 +10,7 @@ use crossbeam_channel::{Receiver, Sender};
 use thiserror::Error;
 
 pub use poller::{PollerHandle, POLLED_KEYS};
+pub use raw_input::{is_raw_input_active, normalize_raw_vk, RawInputHandle};
 pub use vk_map::{map_vk_to_zone, DebounceFilter, KeyEvent, DEBOUNCE_WINDOW_MS};
 pub use win32_hook::KeyboardHookHandle;
 
@@ -22,9 +24,10 @@ pub enum HookError {
     InitTimeout,
 }
 
-/// Unified keyboard listener managing the OS low-level hook and UIPI fallback poller threads.
+/// Unified keyboard listener managing the OS low-level hook, Raw Input sink, and UIPI fallback poller threads.
 pub struct KeyboardListener {
     hook: Option<KeyboardHookHandle>,
+    raw_input: Option<RawInputHandle>,
     poller: Option<PollerHandle>,
     sender: Sender<KeyEvent>,
     receiver: Receiver<KeyEvent>,
@@ -32,7 +35,7 @@ pub struct KeyboardListener {
 }
 
 impl KeyboardListener {
-    /// Starts both the low-level hook and UIPI fallback poller.
+    /// Starts the low-level hook, Raw Input (`RIDEV_INPUTSINK`) worker, and 200 Hz fallback poller.
     pub fn start() -> Result<Self, HookError> {
         Self::start_with_options(true, true)
     }
@@ -48,6 +51,12 @@ impl KeyboardListener {
             None
         };
 
+        let raw_input = if enable_hook {
+            RawInputHandle::start(sender.clone(), debouncer.clone()).ok()
+        } else {
+            None
+        };
+
         let poller = if enable_poller {
             Some(PollerHandle::start(sender.clone(), debouncer.clone())?)
         } else {
@@ -56,6 +65,7 @@ impl KeyboardListener {
 
         Ok(Self {
             hook,
+            raw_input,
             poller,
             sender,
             receiver,
@@ -80,7 +90,14 @@ impl KeyboardListener {
         self.debouncer.clone()
     }
 
+    pub fn has_raw_input(&self) -> bool {
+        self.raw_input.is_some()
+    }
+
     pub fn stop(&mut self) {
+        if let Some(mut raw) = self.raw_input.take() {
+            raw.stop();
+        }
         if let Some(mut hook) = self.hook.take() {
             hook.stop();
         }

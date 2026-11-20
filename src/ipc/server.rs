@@ -21,6 +21,64 @@ use windows_sys::Win32::System::Pipes::{
 
 pub const DEFAULT_PIPE_NAME: &str = r"\\.\pipe\AuraZoneRipple_IPC";
 
+/// RAII wrapper around a Win32 `SECURITY_ATTRIBUTES` with an SDDL security descriptor
+/// allowing Medium/Low-integrity GUI and CLI processes to connect to an Elevated daemon pipe.
+#[cfg(windows)]
+struct PipeSecurityAttributes {
+    sd: windows_sys::Win32::Security::PSECURITY_DESCRIPTOR,
+    sa: windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+}
+
+#[cfg(windows)]
+impl PipeSecurityAttributes {
+    fn new_cross_integrity() -> Option<Self> {
+        use windows_sys::Win32::Security::Authorization::{
+            ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+        };
+        use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+
+        // Grant Full Access to SYSTEM & Builtin Admins, Generic Read/Write to Authenticated Users,
+        // and Low Mandatory Label so standard-user clients can open the pipe under UIPI.
+        let sddl: Vec<u16> = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)S:(ML;;NW;;;LW)\0"
+            .encode_utf16()
+            .collect();
+        let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        let ok = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                SDDL_REVISION_1,
+                &mut sd,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 || sd.is_null() {
+            return None;
+        }
+        let sa = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: sd,
+            bInheritHandle: 0,
+        };
+        Some(Self { sd, sa })
+    }
+
+    fn as_ptr(&self) -> *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES {
+        &self.sa as *const _
+    }
+}
+
+#[cfg(windows)]
+impl Drop for PipeSecurityAttributes {
+    fn drop(&mut self) {
+        if !self.sd.is_null() {
+            unsafe {
+                windows_sys::Win32::Foundation::LocalFree(self.sd as _);
+            }
+            self.sd = std::ptr::null_mut();
+        }
+    }
+}
+
 /// Trait defining the daemon IPC command dispatcher.
 pub trait IpcCommandHandler: Send + Sync + 'static {
     /// Handles a single command string, returning `(response_string, should_stop)`.
@@ -90,6 +148,13 @@ fn run_server_loop<H: IpcCommandHandler>(
     running: Arc<AtomicBool>,
 ) {
     let wide_pipe_name: Vec<u16> = pipe_name.encode_utf16().chain(std::iter::once(0)).collect();
+    #[cfg(windows)]
+    let security_attrs = PipeSecurityAttributes::new_cross_integrity();
+    #[cfg(windows)]
+    let sa_ptr = security_attrs
+        .as_ref()
+        .map(|s| s.as_ptr())
+        .unwrap_or(std::ptr::null());
 
     while running.load(Ordering::SeqCst) {
         let h_pipe = unsafe {
@@ -101,7 +166,7 @@ fn run_server_loop<H: IpcCommandHandler>(
                 1024,
                 1024,
                 50,
-                std::ptr::null(),
+                sa_ptr,
             )
         };
 
@@ -243,5 +308,18 @@ pub fn wake_up_pipe(pipe_name: &str) {
             break;
         }
         thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn test_cross_integrity_security_attributes_creation() {
+        let sa = PipeSecurityAttributes::new_cross_integrity()
+            .expect("SDDL conversion for cross-integrity Named Pipe must succeed");
+        assert!(!sa.as_ptr().is_null());
     }
 }

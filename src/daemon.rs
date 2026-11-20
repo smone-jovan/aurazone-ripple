@@ -18,10 +18,12 @@ use crate::ipc::{
     wake_up_pipe, IpcCommand, IpcCommandHandler, IpcResponse, NamedPipeServer, SingleInstanceMutex,
 };
 use crate::physics::{
-    advance_rainbow, RippleEngine, DEFAULT_SPREAD_MS, DEFAULT_WAVE_DURATION_MS,
-    FRAME_INTERVAL_MS, LIGHTBAR_CASCADE_DELAY_MS,
+    advance_rainbow_by, scale_rgb_brightness, RippleEngine, DEFAULT_SPREAD_MS,
+    DEFAULT_WAVE_DURATION_MS, FRAME_INTERVAL_MS,
 };
 use std::io::Write;
+
+static LOG_ENABLED: AtomicBool = AtomicBool::new(true);
 
 macro_rules! log_info {
     ($($arg:tt)*) => {
@@ -36,6 +38,9 @@ macro_rules! log_err {
 }
 
 fn file_log(msg: &str) {
+    if !LOG_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
     if let Ok(appdata) = std::env::var("APPDATA") {
         let p = std::path::PathBuf::from(appdata).join("AuraZoneRipple").join("daemon.log");
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
@@ -49,6 +54,8 @@ struct DaemonCommandHandler {
     running: Arc<AtomicBool>,
     active: Arc<AtomicBool>,
     need_reprime: Arc<AtomicBool>,
+    need_lights_off: Arc<AtomicBool>,
+    raw_input_active: Arc<AtomicBool>,
     config: Arc<RwLock<RippleConfig>>,
     settings_path: PathBuf,
     pipe_name: String,
@@ -71,10 +78,34 @@ impl IpcCommandHandler for DaemonCommandHandler {
                 let was_active = self.active.fetch_xor(true, Ordering::SeqCst);
                 let now_active = !was_active;
                 if now_active {
+                    self.need_lights_off.store(false, Ordering::SeqCst);
                     self.need_reprime.store(true, Ordering::SeqCst);
                 }
                 let resp = IpcResponse::Toggle { active: now_active };
                 (resp.to_protocol_string(), false)
+            }
+            IpcCommand::Pause => {
+                self.active.store(false, Ordering::SeqCst);
+                self.need_lights_off.store(true, Ordering::SeqCst);
+                (IpcResponse::Pause.to_protocol_string(), false)
+            }
+            IpcCommand::Resume => {
+                self.need_lights_off.store(false, Ordering::SeqCst);
+                self.active.store(true, Ordering::SeqCst);
+                self.need_reprime.store(true, Ordering::SeqCst);
+                (IpcResponse::Resume.to_protocol_string(), false)
+            }
+            IpcCommand::Diag => {
+                let elevated = crate::qos::is_process_elevated();
+                let raw_input = self.raw_input_active.load(Ordering::Relaxed);
+                (
+                    IpcResponse::Diag {
+                        elevated,
+                        raw_input,
+                    }
+                    .to_protocol_string(),
+                    false,
+                )
             }
             IpcCommand::Stop => (IpcResponse::Stop.to_protocol_string(), true),
             IpcCommand::Reload => {
@@ -97,6 +128,7 @@ impl IpcCommandHandler for DaemonCommandHandler {
 
 /// Runs the AuraZoneRipple background daemon.
 pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
+    LOG_ENABLED.store(!mock, Ordering::Relaxed);
     file_log("1. Starting run_daemon...");
 
     // 0. Boost process priority (ABOVE_NORMAL), disable Windows 11 EcoQoS, and engage 1ms timer
@@ -172,6 +204,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     let running = Arc::new(AtomicBool::new(true));
     let active = Arc::new(AtomicBool::new(start_active));
     let need_reprime = Arc::new(AtomicBool::new(true));
+    let need_lights_off = Arc::new(AtomicBool::new(false));
     let need_reprime_watcher = Arc::clone(&need_reprime);
     let need_reprime_tray = Arc::clone(&need_reprime);
     let ui_preview: Arc<[AtomicU32; 8]> = Arc::new(std::array::from_fn(|_| AtomicU32::new(0)));
@@ -185,7 +218,7 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     .spawn_thread();
     file_log("5. Tray thread spawned.");
 
-    // 6. Initialize Keyboard Listener (hook + poller or mock) with interactive desktop ready
+    // 6. Initialize Keyboard Listener (hook + Raw Input + poller or mock) with interactive desktop ready
     let mut listener = if mock {
         KeyboardListener::new_mock()
     } else {
@@ -201,7 +234,12 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     let rx = listener.receiver();
-    file_log("6. Device and listener ready.");
+    let raw_input_active = Arc::new(AtomicBool::new(listener.has_raw_input()));
+    file_log(&format!(
+        "6. Device and listener ready (elevated={}, raw_input={}).",
+        crate::qos::is_process_elevated(),
+        listener.has_raw_input()
+    ));
 
     // 7. Start Named Pipe IPC Server
     let pipe_name = NamedPipeServer::get_pipe_name();
@@ -209,6 +247,8 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         running: Arc::clone(&running),
         active: Arc::clone(&active),
         need_reprime: Arc::clone(&need_reprime),
+        need_lights_off: Arc::clone(&need_lights_off),
+        raw_input_active,
         config: Arc::clone(&shared_config),
         settings_path,
         pipe_name: pipe_name.clone(),
@@ -270,9 +310,9 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
     crate::qos::boost_input_thread(false);
     let mut engine = RippleEngine::new();
     let mut current_hue = 0.0f32;
-    let cascade = Duration::from_millis(LIGHTBAR_CASCADE_DELAY_MS);
     let frame_interval = Duration::from_millis(FRAME_INTERVAL_MS);
     let mut was_active = false;
+    let mut was_lights_off = false;
     let mut reprime_countdown: u32 = 0;
 
     file_log("7. Entering while loop.");
@@ -281,18 +321,31 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         let is_active = active.load(Ordering::Relaxed);
         let cfg = shared_config.read().clone();
 
-        // If daemon is paused (e.g. G-Helper is in Static, Breathe, Color Cycle mode):
-        // NEVER send ANY frames to hardware! Pure zero-packet state lets G-Helper control lighting cleanly.
+        // If daemon is paused (e.g. G-Helper is in Static/Breathe mode, or user clicked Lights off):
+        // After an optional explicit blackout frame, NEVER send frames so G-Helper stays unobstructed.
         if !is_active {
             was_active = false;
             reprime_countdown = 0;
-            for (z, c) in [cfg.color_base; 8].iter().enumerate() {
-                let u32_val = ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | (c[2] as u32);
-                ui_preview[z].store(u32_val, Ordering::Relaxed);
+            while rx.try_recv().is_ok() {}
+            if need_lights_off.swap(false, Ordering::SeqCst) {
+                was_lights_off = true;
+                let _ = device.set_static_uniform([0, 0, 0]);
+                for slot in ui_preview.iter() {
+                    slot.store(0, Ordering::Relaxed);
+                }
+            } else if !was_lights_off {
+                let base_scaled = scale_rgb_brightness(cfg.color_base, cfg.brightness);
+                let u32_val = ((base_scaled[0] as u32) << 16)
+                    | ((base_scaled[1] as u32) << 8)
+                    | (base_scaled[2] as u32);
+                for slot in ui_preview.iter() {
+                    slot.store(u32_val, Ordering::Relaxed);
+                }
             }
             thread::sleep(Duration::from_millis(20));
             continue;
         }
+        was_lights_off = false;
 
         if !was_active || need_reprime.swap(false, Ordering::SeqCst) {
             // Re-prime microcontroller into Direct Mode 0xBC over a 300 ms window (15 frames)
@@ -308,15 +361,20 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
         was_active = true;
 
-        let spread = Duration::from_millis(DEFAULT_SPREAD_MS);
         let speed_factor = if cfg.speed > 0.05 { cfg.speed } else { 1.0 };
-        let duration =
-            Duration::from_millis((DEFAULT_WAVE_DURATION_MS as f32 / speed_factor) as u64);
+        let spread_ms = (DEFAULT_SPREAD_MS as f32 / speed_factor)
+            .round()
+            .clamp(25.0, 180.0) as u64;
+        let spread = Duration::from_millis(spread_ms);
+        let duration_ms = ((cfg.decay * 500.0).round().clamp(150.0, 800.0) as u64)
+            .max(DEFAULT_WAVE_DURATION_MS.min(150));
+        let duration = Duration::from_millis(duration_ms);
+        let cascade = Duration::from_millis(cfg.lightbar_delay_ms.clamp(5, 250));
 
         // 7a. Drain incoming keystroke events from channel
         while let Ok(event) = rx.try_recv() {
             let color = if cfg.rainbow {
-                advance_rainbow(&mut current_hue)
+                advance_rainbow_by(&mut current_hue, cfg.hue_step_deg as f32)
             } else {
                 cfg.color_ripple
             };
@@ -324,10 +382,17 @@ pub fn run_daemon(mock: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // 7b. Prune expired waves and compute frame colors
-        let zone_colors = {
+        let mut zone_colors = {
             engine.prune_expired(frame_start, spread, cascade);
             engine.render_at_time(frame_start, cfg.color_base, spread, cascade)
         };
+
+        // Apply global brightness scale
+        if cfg.brightness < 100 {
+            for c in &mut zone_colors {
+                *c = scale_rgb_brightness(*c, cfg.brightness);
+            }
+        }
 
         // 7c. Update lockless UI preview buffer (0x00RRGGBB)
         for (z, c) in zone_colors.iter().enumerate() {

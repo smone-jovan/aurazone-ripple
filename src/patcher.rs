@@ -419,8 +419,98 @@ pub fn is_startup_task_installed() -> bool {
     }
 }
 
-/// Registers the Windows Logon Instant Startup Task silently in Task Scheduler.
-pub fn install_startup_task() -> Result<(), String> {
+/// Checks if the registered `AuraZoneRipple` Scheduled Task runs with `HighestAvailable` elevation.
+pub fn is_startup_task_elevated() -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let Ok(output) = std::process::Command::new("schtasks")
+            .args(["/Query", "/TN", "AuraZoneRipple", "/XML"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        else {
+            return false;
+        };
+        if !output.status.success() {
+            return false;
+        }
+        let xml = String::from_utf8_lossy(&output.stdout);
+        xml.contains("<RunLevel>HighestAvailable</RunLevel>")
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn escape_xml(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// Builds a Task Scheduler 1.2 XML definition for an elevated, AC/battery-safe,
+/// zero-time-limit interactive logon gaming daemon.
+pub fn build_elevated_task_xml(exe_path: &str) -> String {
+    let escaped = escape_xml(exe_path);
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>false</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>5</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{}</Command>
+      <Arguments>--daemon</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"#,
+        escaped
+    )
+}
+
+/// Installs the elevated `AuraZoneRipple` Task Scheduler entry directly (requires Admin/UAC),
+/// removes legacy HKCU Run delay entry, stops any non-elevated daemon, and launches the task.
+pub fn install_elevated_startup_task_direct() -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe_str = current_exe.to_str().ok_or("Invalid executable path")?;
 
@@ -428,44 +518,112 @@ pub fn install_startup_task() -> Result<(), String> {
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let output = std::process::Command::new("schtasks")
-            .args([
-                "/Create", "/F",
-                "/TN", "AuraZoneRipple",
-                "/SC", "ONLOGON",
-                "/TR", &format!("\"{}\" --daemon", exe_str),
-                "/RL", "HIGHEST",
-            ])
+
+        let xml = build_elevated_task_xml(exe_str);
+        let tmp_xml = std::env::temp_dir().join(format!("aurazone_task_{}.xml", std::process::id()));
+
+        let mut utf16_bytes = Vec::with_capacity(2 + xml.len() * 2);
+        utf16_bytes.extend_from_slice(&[0xFF, 0xFE]); // UTF-16LE BOM
+        for unit in xml.encode_utf16() {
+            utf16_bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        std::fs::write(&tmp_xml, &utf16_bytes)
+            .map_err(|e| format!("Failed to write task XML: {}", e))?;
+
+        let tmp_str = tmp_xml.to_str().ok_or("Invalid temp XML path")?;
+        let create_out = std::process::Command::new("schtasks")
+            .args(["/Create", "/F", "/TN", "AuraZoneRipple", "/XML", tmp_str])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Failed to run schtasks: {}", e));
 
-        if output.status.success() {
-            return Ok(());
+        let _ = std::fs::remove_file(&tmp_xml);
+
+        let create_out = create_out?;
+        if !create_out.status.success() {
+            let err = String::from_utf8_lossy(&create_out.stderr).trim().to_string();
+            let out = String::from_utf8_lossy(&create_out.stdout).trim().to_string();
+            return Err(if err.is_empty() { out } else { err });
         }
 
-        // Fallback without /RL HIGHEST if not running with Administrator privileges
-        let fallback = std::process::Command::new("schtasks")
+        // Remove legacy HKCU Run key so Windows never spawns an un-elevated duplicate
+        let _ = std::process::Command::new("reg")
             .args([
-                "/Create", "/F",
-                "/TN", "AuraZoneRipple",
-                "/SC", "ONLOGON",
-                "/TR", &format!("\"{}\" --daemon", exe_str),
+                "delete",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                "AuraZoneRipple",
+                "/f",
             ])
             .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| e.to_string())?;
+            .output();
 
-        if fallback.status.success() {
+        // Stop any existing non-elevated daemon and immediately start the elevated Scheduled Task
+        let _ = crate::ipc::send_ipc_command("STOP");
+        std::thread::sleep(std::time::Duration::from_millis(350));
+
+        let _ = std::process::Command::new("schtasks")
+            .args(["/Run", "/TN", "AuraZoneRipple"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = exe_str;
+        Ok(())
+    }
+}
+
+/// Installs the elevated gaming task: runs directly if already Admin, or triggers a clean UAC prompt.
+pub fn launch_elevated_task_installer() -> Result<(), String> {
+    if crate::qos::is_process_elevated() {
+        return install_elevated_startup_task_direct();
+    }
+
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+        let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let exe_str = current_exe.to_str().ok_or("Invalid executable path")?;
+
+        let verb: Vec<u16> = "runas\0".encode_utf16().collect();
+        let file: Vec<u16> = format!("{}\0", exe_str).encode_utf16().collect();
+        let params: Vec<u16> = "--install-elevated-task\0".encode_utf16().collect();
+
+        let hinst = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                verb.as_ptr(),
+                file.as_ptr(),
+                params.as_ptr(),
+                std::ptr::null(),
+                SW_HIDE,
+            )
+        };
+
+        if (hinst as isize) > 32 {
             Ok(())
         } else {
-            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+            Err(format!(
+                "UAC elevation canceled or failed (ShellExecute code: {})",
+                hinst as isize
+            ))
         }
     }
     #[cfg(not(windows))]
     {
         Ok(())
     }
+}
+
+/// Registers the Windows Logon Instant Startup Task silently in Task Scheduler.
+/// Attempts elevated XML installation (prompting UAC if needed).
+pub fn install_startup_task() -> Result<(), String> {
+    launch_elevated_task_installer()
 }
 
 /// Deletes the Windows Logon Startup Task from Task Scheduler.
@@ -564,5 +722,16 @@ mod tests {
         // Double unpatch should fail with NotPatched
         let unpatch_err = unpatch_debounce_timer_buffer(&mut buffer).unwrap_err();
         assert_eq!(unpatch_err, PatchError::NotPatched);
+    }
+
+    #[test]
+    fn test_build_elevated_task_xml() {
+        let xml = build_elevated_task_xml(r#"C:\Program Files\Aura & Zone\aurazone_ripple.exe"#);
+        assert!(xml.contains("<RunLevel>HighestAvailable</RunLevel>"));
+        assert!(xml.contains("<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"));
+        assert!(xml.contains("<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>"));
+        assert!(xml.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
+        assert!(xml.contains("<Arguments>--daemon</Arguments>"));
+        assert!(xml.contains("Aura &amp; Zone"));
     }
 }

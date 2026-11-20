@@ -40,6 +40,10 @@ impl SingleInstanceMutex {
 
         if handle.is_null() {
             let code = unsafe { GetLastError() };
+            if code == 5 {
+                // ERROR_ACCESS_DENIED: mutex exists and is owned by an elevated/High-Integrity daemon
+                return Err(MutexError::AlreadyRunning(name.to_string()));
+            }
             return Err(MutexError::CreateFailed {
                 name: name.to_string(),
                 code,

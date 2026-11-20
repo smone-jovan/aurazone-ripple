@@ -1,17 +1,15 @@
 @echo off
 echo ========================================================
-echo  Installing AuraZoneRipple to Windows Task Scheduler...
+echo  Installing Elevated Gaming Startup Task (AuraZoneRipple)
 echo ========================================================
-schtasks /create /tn "AuraZoneRipple" /tr "\"%~dp0target\release\aurazone_ripple.exe\" --daemon" /sc ONLOGON /rl HIGHEST /f
+"%~dp0target\release\aurazone_ripple.exe" --install-elevated-task
 if %errorlevel% equ 0 (
     echo.
-    echo [OK] Task Scheduler registered successfully with Highest Privileges!
-    reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AuraZoneRipple" /f >nul 2>&1
-    echo [OK] Removed from legacy HKCU Run key to eliminate Windows Startup Delay.
-    echo [OK] AuraZone will now start instantly at logon with zero delay!
+    echo [OK] Elevated Gaming Task registered with HighestAvailable privileges!
+    echo [OK] AuraZone daemon will now receive keyboard input inside elevated games ^(ZZZ, etc.^).
 ) else (
     echo.
-    echo [ERROR] Gagal mendaftarkan task.
+    echo [ERROR] Gagal mendaftarkan elevated task.
     echo Silakan KLIK KANAN file ini lalu pilih 'Run as administrator'!
 )
 pause

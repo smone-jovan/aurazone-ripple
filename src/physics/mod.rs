@@ -5,8 +5,8 @@ pub mod engine;
 pub mod wave;
 
 pub use color::{
-    advance_rainbow, blend_colors, hsv_norm_to_rgb, hsv_to_rgb, saturating_add_rgb,
-    RAINBOW_HUE_STEP,
+    advance_rainbow, advance_rainbow_by, blend_colors, hsv_norm_to_rgb, hsv_to_rgb,
+    saturating_add_rgb, scale_rgb_brightness, RAINBOW_HUE_STEP,
 };
 pub use engine::{
     run_engine_loop, ActiveRipple, RippleEngine, DEFAULT_WAVE_DURATION_MS, FRAME_INTERVAL_MS,

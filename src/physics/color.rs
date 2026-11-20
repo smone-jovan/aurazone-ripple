@@ -46,6 +46,34 @@ pub fn advance_rainbow(current_hue: &mut f32) -> [u8; 3] {
     hsv_norm_to_rgb(*current_hue, 1.0, 1.0)
 }
 
+/// Advances rainbow hue by `step_deg` degrees and returns the updated RGB color.
+#[inline]
+pub fn advance_rainbow_by(current_hue: &mut f32, step_deg: f32) -> [u8; 3] {
+    let norm_step = step_deg / 360.0;
+    *current_hue = (*current_hue + norm_step).fract();
+    if *current_hue < 0.0 {
+        *current_hue += 1.0;
+    }
+    hsv_norm_to_rgb(*current_hue, 1.0, 1.0)
+}
+
+/// Scales an RGB triplet by brightness percentage (`0..=100`).
+#[inline]
+pub fn scale_rgb_brightness(rgb: [u8; 3], brightness_pct: u8) -> [u8; 3] {
+    if brightness_pct >= 100 {
+        return rgb;
+    }
+    if brightness_pct == 0 {
+        return [0, 0, 0];
+    }
+    let factor = brightness_pct as f32 / 100.0;
+    [
+        (rgb[0] as f32 * factor).round().clamp(0.0, 255.0) as u8,
+        (rgb[1] as f32 * factor).round().clamp(0.0, 255.0) as u8,
+        (rgb[2] as f32 * factor).round().clamp(0.0, 255.0) as u8,
+    ]
+}
+
 /// Linear interpolation (lerp) blending ripple color over idle base color.
 #[inline]
 pub fn blend_colors(base: [u8; 3], ripple: [u8; 3], intensity: f32) -> [u8; 3] {
@@ -65,4 +93,24 @@ pub fn saturating_add_rgb(c1: [u8; 3], c2: [u8; 3]) -> [u8; 3] {
         c1[1].saturating_add(c2[1]),
         c1[2].saturating_add(c2[2]),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scale_rgb_brightness() {
+        assert_eq!(scale_rgb_brightness([200, 100, 50], 100), [200, 100, 50]);
+        assert_eq!(scale_rgb_brightness([200, 100, 50], 0), [0, 0, 0]);
+        assert_eq!(scale_rgb_brightness([200, 100, 50], 50), [100, 50, 25]);
+    }
+
+    #[test]
+    fn test_advance_rainbow_by() {
+        let mut hue = 0.0f32;
+        let c1 = advance_rainbow_by(&mut hue, 90.0);
+        assert!((hue - 0.25).abs() < 1e-5);
+        assert_ne!(c1, [255, 0, 0]);
+    }
 }

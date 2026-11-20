@@ -63,6 +63,10 @@ pub struct RippleConfig {
     pub rainbow: bool,
     pub color_base: [u8; 3],
     pub color_ripple: [u8; 3],
+    #[serde(default = "RippleConfig::default_brightness")]
+    pub brightness: u8,
+    #[serde(default = "RippleConfig::default_hue_step_deg")]
+    pub hue_step_deg: u16,
     #[serde(default = "RippleConfig::default_profile_1")]
     pub profile_1: ProfileData,
     #[serde(default = "RippleConfig::default_profile_2")]
@@ -76,6 +80,14 @@ impl Default for RippleConfig {
 }
 
 impl RippleConfig {
+    pub fn default_brightness() -> u8 {
+        100
+    }
+
+    pub fn default_hue_step_deg() -> u16 {
+        43
+    }
+
     pub fn default_profile_1() -> ProfileData {
         ProfileData {
             name: "Profil 1".to_string(),
@@ -115,6 +127,8 @@ impl RippleConfig {
                 rainbow: false,
                 color_base: [255, 0, 128],    // Neon pink
                 color_ripple: [0, 210, 255],   // Electric cyan
+                brightness: 100,
+                hue_step_deg: 43,
                 profile_1: p1,
                 profile_2: p2,
             },
@@ -127,6 +141,8 @@ impl RippleConfig {
                 rainbow: false,
                 color_base: [0, 20, 0],       // Deep green
                 color_ripple: [0, 255, 65],    // Matrix green
+                brightness: 100,
+                hue_step_deg: 43,
                 profile_1: p1,
                 profile_2: p2,
             },
@@ -139,6 +155,8 @@ impl RippleConfig {
                 rainbow: false,
                 color_base: [0, 0, 0],         // Completely off
                 color_ripple: [255, 255, 255], // Crisp white
+                brightness: 100,
+                hue_step_deg: 43,
                 profile_1: p1,
                 profile_2: p2,
             },
@@ -151,6 +169,8 @@ impl RippleConfig {
                 rainbow: false,
                 color_base: [40, 0, 0],
                 color_ripple: [255, 60, 0],
+                brightness: 100,
+                hue_step_deg: 43,
                 profile_1: p1,
                 profile_2: p2,
             },
@@ -163,6 +183,8 @@ impl RippleConfig {
                 rainbow: false,
                 color_base: [30, 0, 60],
                 color_ripple: [255, 0, 128],
+                brightness: 100,
+                hue_step_deg: 43,
                 profile_1: p1,
                 profile_2: p2,
             },
@@ -175,6 +197,8 @@ impl RippleConfig {
                 rainbow: true,
                 color_base: [10, 10, 10],
                 color_ripple: [255, 0, 0],
+                brightness: 100,
+                hue_step_deg: 43,
                 profile_1: p1,
                 profile_2: p2,
             },
@@ -187,6 +211,8 @@ impl RippleConfig {
                 rainbow: p1.rainbow,
                 color_base: p1.color_base,
                 color_ripple: p1.color_ripple,
+                brightness: 100,
+                hue_step_deg: 43,
                 profile_1: p1,
                 profile_2: p2,
             },
@@ -199,14 +225,18 @@ impl RippleConfig {
                 rainbow: p2.rainbow,
                 color_base: p2.color_base,
                 color_ripple: p2.color_ripple,
+                brightness: 100,
+                hue_step_deg: 43,
                 profile_1: p1,
                 profile_2: p2,
             },
         }
     }
 
-    /// Switches preset while preserving customized user profile slots.
+    /// Switches preset while preserving customized user profile slots, brightness, and hue step.
     pub fn switch_preset(&mut self, preset: Preset) {
+        let saved_brightness = self.brightness.min(100);
+        let saved_hue_step = self.hue_step_deg;
         match preset {
             Preset::Profile1 => self.apply_profile(1),
             Preset::Profile2 => self.apply_profile(2),
@@ -218,6 +248,8 @@ impl RippleConfig {
                 self.profile_2 = p2;
             }
         }
+        self.brightness = saved_brightness;
+        self.hue_step_deg = saved_hue_step;
     }
 
     /// Applies stored parameters from the given user profile slot (1 or 2).
@@ -348,4 +380,27 @@ pub fn get_canonical_settings_path() -> std::path::PathBuf {
     }
 
     std::path::PathBuf::from("ripple_settings.json")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_legacy_json_deserializes_with_defaults() {
+        let legacy = r#"{
+            "preset": "Volcano",
+            "speed": 0.9,
+            "decay": 0.85,
+            "attack": 0.15,
+            "lightbar_delay_ms": 35,
+            "rainbow": false,
+            "color_base": [40, 0, 0],
+            "color_ripple": [255, 60, 0]
+        }"#;
+        let cfg: RippleConfig = serde_json::from_str(legacy).expect("Legacy JSON must parse");
+        assert_eq!(cfg.preset, Preset::Volcano);
+        assert_eq!(cfg.brightness, 100);
+        assert_eq!(cfg.hue_step_deg, 43);
+    }
 }
